@@ -236,6 +236,62 @@
         </div>
     </div>
     
+    <!-- Create Assignment Form -->
+    <div id="createAssignmentForm" style="display: none; border: 1px solid #ddd; padding: 15px; margin: 10px 0; background-color: #f0f8ff;">
+        <h3>➕ Create New Assignment</h3>
+        <p style="color: #666; font-size: 14px;">User assigns an incident to an emergency unit</p>
+        
+        <fieldset style="border: 1px solid #ccc; padding: 10px; margin: 10px 0;">
+            <legend>Assignment Details</legend>
+            <div class="form-group">
+                <label>User ID: <span style="color: red;">*</span></label>
+                <input type="number" id="assignUserId" placeholder="Enter User ID">
+            </div>
+            <div class="form-group">
+                <label>Incident ID: <span style="color: red;">*</span></label>
+                <input type="number" id="assignIncidentId" placeholder="Enter Incident ID">
+            </div>
+            <div class="form-group">
+                <label>Emergency Unit ID: <span style="color: red;">*</span></label>
+                <input type="number" id="assignUnitId" placeholder="Enter Emergency Unit ID">
+            </div>
+        </fieldset>
+        
+        <button class="send-btn" onclick="createAssignment()" style="margin-top: 10px; font-size: 16px; padding: 10px 20px; background-color: #17a2b8;">Create Assignment</button>
+        
+        <div style="margin-top: 10px; padding: 8px; background-color: #d1ecf1; border-left: 4px solid #17a2b8; font-size: 12px; color: #0c5460;">
+            ℹ️ <strong>Note:</strong> Creating an assignment will automatically set the Emergency Unit status to ACTIVE
+        </div>
+    </div>
+    
+    <!-- Assignment Monitoring Section -->
+    <div id="assignmentMonitor" style="display: none; border: 1px solid #ddd; padding: 15px; margin: 10px 0; background-color: #f9f9f9;">
+        <h3>📋 Real-Time Assignment Monitor</h3>
+        <p style="color: #666; font-size: 14px;">Watch assignments as they are created and deactivated in real-time</p>
+        
+        <div style="margin: 10px 0;">
+            <button class="send-btn" onclick="requestAllAssignments()" style="font-size: 14px;">🔄 Refresh All Assignments</button>
+            <button class="send-btn" onclick="requestActiveAssignments()" style="font-size: 14px; background-color: #28a745;">✓ Show Active Only</button>
+        </div>
+        
+        <div style="margin-top: 15px; padding: 10px; background-color: white; border: 1px solid #ddd; border-radius: 4px;">
+            <h4 style="margin: 0 0 10px 0; color: #007bff;">📊 Live Assignments:</h4>
+            <div id="assignmentsList" style="max-height: 400px; overflow-y: auto;">
+                <em style="color: #999;">Waiting for assignment updates...</em>
+            </div>
+        </div>
+        
+        <div style="margin-top: 15px; padding: 10px; background-color: #fff3cd; border-left: 4px solid #ffc107;">
+            <h4 style="margin: 0 0 10px 0; color: #856404;">💡 How it works:</h4>
+            <ul style="margin: 5px 0; padding-left: 20px; font-size: 13px; color: #666;">
+                <li>Create assignments via REST API (POST /api/assignments)</li>
+                <li>Assignments appear here automatically in real-time</li>
+                <li>Active status (✓ Active / ✗ Inactive) updates instantly</li>
+                <li>Shows User, Incident, Emergency Unit details</li>
+            </ul>
+        </div>
+    </div>
+    
     <div id="messages"></div>
     
     <script>
@@ -259,6 +315,8 @@
             const disconnectBtn = document.getElementById('disconnectBtn');
             const notificationForm = document.getElementById('notificationForm');
             const locationUpdateForm = document.getElementById('locationUpdateForm');
+            const createAssignmentForm = document.getElementById('createAssignmentForm');
+            const assignmentMonitor = document.getElementById('assignmentMonitor');
             
             if (isConnected) {
                 statusDiv.textContent = 'Connected';
@@ -267,6 +325,8 @@
                 disconnectBtn.disabled = false;
                 notificationForm.style.display = 'block';
                 locationUpdateForm.style.display = 'block';
+                createAssignmentForm.style.display = 'block';
+                assignmentMonitor.style.display = 'block';
             } else {
                 statusDiv.textContent = 'Disconnected';
                 statusDiv.className = 'status disconnected';
@@ -274,6 +334,8 @@
                 disconnectBtn.disabled = true;
                 notificationForm.style.display = 'none';
                 locationUpdateForm.style.display = 'none';
+                createAssignmentForm.style.display = 'none';
+                assignmentMonitor.style.display = 'none';
             }
         }
 
@@ -322,6 +384,29 @@
                         log('Subscribing to /topic/unit-location/errors...');
                         const subscribeLocationErrorFrame = 'SUBSCRIBE\nid:sub-3\ndestination:/topic/unit-location/errors\n\n\0';
                         ws.send(subscribeLocationErrorFrame);
+                        
+                        // Subscribe to assignment updates (real-time notifications)
+                        log('Subscribing to /topic/assignments...');
+                        const subscribeAssignmentsFrame = 'SUBSCRIBE\nid:sub-4\ndestination:/topic/assignments\n\n\0';
+                        ws.send(subscribeAssignmentsFrame);
+                        
+                        // Subscribe to all assignments responses
+                        log('Subscribing to /topic/assignments/all...');
+                        const subscribeAssignmentsAllFrame = 'SUBSCRIBE\nid:sub-5\ndestination:/topic/assignments/all\n\n\0';
+                        ws.send(subscribeAssignmentsAllFrame);
+                        
+                        // Subscribe to active assignments responses
+                        log('Subscribing to /topic/assignments/active...');
+                        const subscribeAssignmentsActiveFrame = 'SUBSCRIBE\nid:sub-6\ndestination:/topic/assignments/active\n\n\0';
+                        ws.send(subscribeAssignmentsActiveFrame);
+                        
+                        // Subscribe to assignment errors
+                        log('Subscribing to /topic/assignments/errors...');
+                        const subscribeAssignmentsErrorFrame = 'SUBSCRIBE\nid:sub-7\ndestination:/topic/assignments/errors\n\n\0';
+                        ws.send(subscribeAssignmentsErrorFrame);
+                        
+                        // Request initial assignment list
+                        setTimeout(() => requestAllAssignments(), 500);
                     } else if (event.data.includes('MESSAGE')) {
                         // Parse STOMP MESSAGE frame
                         const lines = event.data.split('\n');
@@ -339,6 +424,15 @@
                                 if (destination.includes('/topic/unit-location')) {
                                     log('Location update received: ' + JSON.stringify(parsed, null, 2), 'success');
                                     displayLocationUpdate(parsed);
+                                } else if (destination.includes('/topic/assignments/all')) {
+                                    log('All assignments received: ' + parsed.length + ' assignments', 'success');
+                                    displayAssignmentsList(parsed);
+                                } else if (destination.includes('/topic/assignments/active')) {
+                                    log('Active assignments received: ' + parsed.length + ' assignments', 'success');
+                                    displayAssignmentsList(parsed);
+                                } else if (destination.includes('/topic/assignments')) {
+                                    log('Assignment update received: ' + JSON.stringify(parsed, null, 2), 'success');
+                                    displaySingleAssignment(parsed);
                                 } else if (destination.includes('/topic/notify')) {
                                     log('Notification received: ' + JSON.stringify(parsed, null, 2), 'success');
                                 } else {
@@ -620,6 +714,219 @@
             } catch (error) {
                 log('Error creating incident: ' + error.message, 'error');
                 alert('Error creating incident: ' + error.message);
+            }
+        }
+
+        // Assignment Functions
+        async function createAssignment() {
+            const userId = parseInt(document.getElementById('assignUserId').value);
+            const incidentId = parseInt(document.getElementById('assignIncidentId').value);
+            const unitId = parseInt(document.getElementById('assignUnitId').value);
+
+            // Validate inputs
+            if (isNaN(userId) || userId <= 0) {
+                log('User ID is required!', 'error');
+                alert('User ID is required! Please enter a valid User ID.');
+                return;
+            }
+
+            if (isNaN(incidentId) || incidentId <= 0) {
+                log('Incident ID is required!', 'error');
+                alert('Incident ID is required! Please enter a valid Incident ID.');
+                return;
+            }
+
+            if (isNaN(unitId) || unitId <= 0) {
+                log('Emergency Unit ID is required!', 'error');
+                alert('Emergency Unit ID is required! Please enter a valid Emergency Unit ID.');
+                return;
+            }
+
+            const assignment = {
+                userId: userId,
+                incidentId: incidentId,
+                unitId: unitId
+            };
+
+            log('Creating assignment via REST API: ' + JSON.stringify(assignment, null, 2));
+
+            try {
+                const response = await fetch('http://localhost:9696/api/assignments', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(assignment)
+                });
+
+                if (response.ok) {
+                    const createdAssignment = await response.json();
+                    log('Assignment created successfully! Assignment ID: ' + createdAssignment.assignmentId, 'success');
+                    alert(`Assignment created successfully!\nAssignment ID: ${createdAssignment.assignmentId}\nEmergency Unit is now ACTIVE`);
+                    
+                    // Clear the form
+                    document.getElementById('assignUserId').value = '';
+                    document.getElementById('assignIncidentId').value = '';
+                    document.getElementById('assignUnitId').value = '';
+                } else {
+                    const errorData = await response.json();
+                    log('Failed to create assignment: ' + errorData.error, 'error');
+                    alert('Failed to create assignment: ' + errorData.error);
+                }
+            } catch (error) {
+                log('Error creating assignment: ' + error.message, 'error');
+                alert('Error creating assignment: ' + error.message);
+            }
+        }
+
+        async function requestAllAssignments() {
+            log('Requesting all assignments via REST API...');
+            try {
+                const response = await fetch('http://localhost:9696/api/assignments');
+                if (response.ok) {
+                    const assignments = await response.json();
+                    log('Retrieved ' + assignments.length + ' assignments', 'success');
+                    displayAssignmentsList(assignments);
+                } else {
+                    log('Failed to retrieve assignments: ' + response.statusText, 'error');
+                }
+            } catch (error) {
+                log('Error retrieving assignments: ' + error.message, 'error');
+            }
+        }
+
+        async function requestActiveAssignments() {
+            log('Requesting active assignments via REST API...');
+            try {
+                const response = await fetch('http://localhost:9696/api/assignments/active');
+                if (response.ok) {
+                    const assignments = await response.json();
+                    log('Retrieved ' + assignments.length + ' active assignments', 'success');
+                    displayAssignmentsList(assignments);
+                } else {
+                    log('Failed to retrieve active assignments: ' + response.statusText, 'error');
+                }
+            } catch (error) {
+                log('Error retrieving active assignments: ' + error.message, 'error');
+            }
+        }
+
+        function displayAssignmentsList(assignments) {
+            const assignmentsList = document.getElementById('assignmentsList');
+            
+            if (!assignments || assignments.length === 0) {
+                assignmentsList.innerHTML = '<em style="color: #999;">No assignments found</em>';
+                return;
+            }
+            
+            assignmentsList.innerHTML = '';
+            
+            assignments.forEach(assignment => {
+                const assignmentDiv = createAssignmentElement(assignment);
+                assignmentsList.appendChild(assignmentDiv);
+            });
+        }
+
+        function displaySingleAssignment(assignment) {
+            const assignmentsList = document.getElementById('assignmentsList');
+            
+            // Clear "waiting" message if present
+            if (assignmentsList.innerHTML.includes('Waiting for assignment updates')) {
+                assignmentsList.innerHTML = '';
+            }
+            
+            // Check if assignment already exists and update it
+            const existingElement = document.getElementById('assignment-' + assignment.assignmentId);
+            if (existingElement) {
+                existingElement.replaceWith(createAssignmentElement(assignment));
+            } else {
+                // Add new assignment at the top
+                const assignmentDiv = createAssignmentElement(assignment);
+                assignmentsList.insertBefore(assignmentDiv, assignmentsList.firstChild);
+            }
+            
+            // Keep only last 20 assignments
+            while (assignmentsList.children.length > 20) {
+                assignmentsList.removeChild(assignmentsList.lastChild);
+            }
+        }
+
+        function createAssignmentElement(assignment) {
+            const assignmentDiv = document.createElement('div');
+            assignmentDiv.id = 'assignment-' + assignment.assignmentId;
+            
+            const isActive = assignment.isActive;
+            const statusColor = isActive ? '#28a745' : '#6c757d';
+            const statusText = isActive ? '✓ ACTIVE' : '✗ COMPLETED';
+            const statusBg = isActive ? '#d4edda' : '#e2e3e5';
+            
+            assignmentDiv.style.cssText = `
+                padding: 12px;
+                margin: 8px 0;
+                background-color: white;
+                border-left: 4px solid ${statusColor};
+                border-radius: 4px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            `;
+            
+            let resolutionInfo = '';
+            if (!isActive && assignment.resolutionTime) {
+                const assignDate = new Date(assignment.assignmentTime);
+                const resolutionDate = new Date(assignment.resolutionTime);
+                const days = Math.ceil((resolutionDate - assignDate) / (1000 * 60 * 60 * 24));
+                resolutionInfo = `<br><span style="color: #666; font-size: 12px;">⏱️ Resolution Time: ${days} day(s)</span>`;
+            }
+            
+            assignmentDiv.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div style="flex: 1;">
+                        <strong style="font-size: 16px; color: #333;">Assignment #${assignment.assignmentId}</strong>
+                        <span style="margin-left: 10px; padding: 3px 8px; background-color: ${statusBg}; color: ${statusColor}; font-size: 11px; font-weight: bold; border-radius: 3px;">
+                            ${statusText}
+                        </span>
+                        <br>
+                        <span style="color: #666; font-size: 13px;">
+                            👤 User: <strong>${assignment.user?.userName || 'ID: ' + assignment.user?.userID}</strong> |
+                            🚨 Incident: <strong>#${assignment.incident?.incidentId}</strong> ${assignment.incident?.type ? '(' + assignment.incident.type + ')' : ''} |
+                            🚒 Unit: <strong>#${assignment.emergencyUnit?.unitID}</strong> ${assignment.emergencyUnit?.type ? '(' + assignment.emergencyUnit.type + ')' : ''}
+                        </span>
+                        <br>
+                        <span style="color: #999; font-size: 11px;">
+                            📅 Assigned: ${assignment.assignmentTime}
+                            ${assignment.resolutionTime ? ' | ✓ Resolved: ' + assignment.resolutionTime : ''}
+                        </span>
+                        ${resolutionInfo}
+                    </div>
+                    ${isActive ? `<button onclick="deactivateAssignment(${assignment.assignmentId})" style="padding: 5px 10px; background-color: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 12px;">Deactivate</button>` : ''}
+                </div>
+            `;
+            
+            return assignmentDiv;
+        }
+
+        async function deactivateAssignment(assignmentId) {
+            if (!confirm('Are you sure you want to deactivate assignment #' + assignmentId + '?')) {
+                return;
+            }
+            
+            log('Deactivating assignment #' + assignmentId + '...');
+            try {
+                const response = await fetch(`http://localhost:9696/api/assignments/${assignmentId}/deactivate`, {
+                    method: 'PUT'
+                });
+                
+                if (response.ok) {
+                    const updatedAssignment = await response.json();
+                    log('Assignment deactivated successfully!', 'success');
+                    // The WebSocket will automatically update the UI
+                } else {
+                    const errorText = await response.text();
+                    log('Failed to deactivate assignment: ' + errorText, 'error');
+                    alert('Failed to deactivate assignment. Check console for details.');
+                }
+            } catch (error) {
+                log('Error deactivating assignment: ' + error.message, 'error');
+                alert('Error deactivating assignment: ' + error.message);
             }
         }
 

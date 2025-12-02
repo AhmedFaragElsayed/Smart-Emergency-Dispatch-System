@@ -2,6 +2,8 @@ package com.emergency.dispatch.model;
 
 import java.time.LocalDate;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -29,12 +31,17 @@ private LocalDate resolutionTime;
 private LocalDate assignmentTime;
 @ManyToOne
 @JoinColumn(name = "incidentId")
+@JsonIgnoreProperties({"assignments", "notifications"})
 private Incident incident;
-   @ManyToOne
-   @JoinColumn(name = "unit_id", referencedColumnName = "userid")
-   private EmergencyUnit emergencyUnit;
-   @ManyToOne
-   @JoinColumn(name = "user_id", referencedColumnName = "userID")
-   private User user;
+@ManyToOne
+@JoinColumn(name = "unit_id", referencedColumnName = "userid")
+@JsonIgnoreProperties({"assignments", "notifications"})
+private EmergencyUnit emergencyUnit;
+@ManyToOne
+@JoinColumn(name = "user_id", referencedColumnName = "userID")
+@JsonIgnoreProperties({"assignments", "notifications"})
+private User user;
+@Column(name = "isActive")
+private Boolean isActive;
 
 }
