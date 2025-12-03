@@ -56,4 +56,17 @@ public class UserService {
     public boolean userExists(Long userId) {
         return userRepository.existsById(userId);
     }
+
+    public String checkVaildation(String userName, String password) {
+        
+       User user = userRepository.findUserByUserName(userName);
+       if (user == null){
+        return null;
+       }
+
+       if (!user.getPassword().equals(password)){
+            return null;
+       }
+       return user.getUserID().toString();
+    }
 }
