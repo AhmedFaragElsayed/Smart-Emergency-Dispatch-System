@@ -1,9 +1,12 @@
 package com.emergency.dispatch.model;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import jakarta.persistence.Column;
@@ -37,6 +40,7 @@ public class Incident {
  @Column(name = "type")
  private String type;
  @Column(name = "reportedTime")
+ @JsonFormat(pattern = "yyyy-MM-dd['T'HH:mm:ss]")
  private LocalDateTime reportedTime;
  @Column(name = "severityLevel")
  private String severityLevel;

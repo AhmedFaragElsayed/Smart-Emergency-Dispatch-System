@@ -76,7 +76,7 @@ public class EmergencyUnitController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteEmergencyUnit(@PathVariable Long id) {
+    public ResponseEntity<Void> deleteEmergencyUnit(@PathVariable("id") Long id) {
         try {
             emergencyUnitService.deleteEmergencyUnit(id);
             return ResponseEntity.noContent().build();

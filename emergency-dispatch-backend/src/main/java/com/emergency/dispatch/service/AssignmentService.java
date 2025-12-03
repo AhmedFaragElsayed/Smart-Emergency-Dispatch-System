@@ -42,6 +42,9 @@ public class AssignmentService {
     @Autowired
     private EmergencyUnitMonitorService monitorService;
 
+    @Autowired
+    private IncidentMonitorService incidentMonitorService;
+
     
     @Transactional
     public Assignment createAssignment(Long userId, Long incidentId, Long unitId) {
@@ -74,12 +77,21 @@ public class AssignmentService {
         assignment.setIsActive(true);
         assignment.setResolutionTime(null); // Not resolved yet
 
-        // Set emergency unit status to active
+        // Set emergency unit status to unavailable (true = active/unavailable)
         emergencyUnit.setStatus(true);
         emergencyUnitRepository.save(emergencyUnit);
 
         // Save assignment
         Assignment savedAssignment = assignmentRepository.save(assignment);
+        
+        // Update incident status to "dispatched" when first unit is assigned
+        if (incident.getStatus() == null || !incident.getStatus().equals("dispatched")) {
+            incident.setStatus("dispatched");
+            incidentRepository.save(incident);
+            
+            // Broadcast incident update via incident monitor service
+            incidentMonitorService.broadcastIncidentUpdate(incidentId);
+        }
         
         // Broadcast WebSocket notification about the new active assignment
         messagingTemplate.convertAndSend("/topic/assignments", (Object) savedAssignment);

@@ -68,10 +68,23 @@ public class EmergencyUnitService {
     }
 
     public void deleteEmergencyUnit(Long unitID) {
-        if (emergencyUnitRepository.existsById(unitID)) {
-            emergencyUnitRepository.deleteById(unitID);
-        } else {
-            throw new RuntimeException("Emergency unit not found with id: " + unitID);
+        try {
+            EmergencyUnit unit = emergencyUnitRepository.findById(unitID)
+                    .orElseThrow(() -> new RuntimeException("Emergency unit not found with id: " + unitID));
+            
+            // Clear bidirectional relationships before deletion
+            if (unit.getAssignments() != null) {
+                unit.getAssignments().clear();
+            }
+            if (unit.getNotifications() != null) {
+                unit.getNotifications().clear();
+            }
+            
+            emergencyUnitRepository.delete(unit);
+            emergencyUnitRepository.flush();
+        } catch (Exception e) {
+            System.err.println("Error deleting emergency unit " + unitID + ": " + e.getMessage());
+            throw new RuntimeException("Failed to delete emergency unit: " + e.getMessage());
         }
     }
 

@@ -88,11 +88,22 @@ class ApiService {
   }
 
   async deleteUnit(unitId) {
-    const response = await fetch(`${API_BASE_URL}/emergency-units/${unitId}`, {
-      method: 'DELETE',
-    });
-    if (!response.ok) throw new Error('Failed to delete unit');
-    return true;
+    try {
+      const response = await fetch(`${API_BASE_URL}/emergency-units/${unitId}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.text().catch(() => '');
+        const errorMessage = errorData || `Failed to delete unit (Status: ${response.status})`;
+        throw new Error(errorMessage);
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error in deleteUnit:', error);
+      throw error;
+    }
   }
 }
 

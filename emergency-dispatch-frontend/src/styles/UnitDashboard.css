@@ -15,6 +15,25 @@
   padding: 1.5rem;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  gap: 1rem;
+}
+
+.dashboard-header .back-button {
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.dashboard-header .back-button:hover {
+  background: #5568d3;
+  transform: translateX(-3px);
 }
 
 .dashboard-header h1 {
@@ -24,6 +43,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-grow: 1;
 }
 
 /* Buttons */
@@ -120,6 +140,7 @@
   border-radius: 8px;
   font-size: 1rem;
   transition: all 0.3s ease;
+  background: white;
 }
 
 .form-group input:focus,
@@ -279,18 +300,20 @@
 .unit-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0;
+  gap: 0.5rem;
   border-top: 2px solid #e0e0e0;
+  padding: 0.75rem;
 }
 
 .btn-edit,
 .btn-delete {
-  padding: 0.75rem;
+  padding: 0.5rem 0.75rem;
   border: none;
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s ease;
+  border-radius: 6px;
 }
 
 .btn-edit {

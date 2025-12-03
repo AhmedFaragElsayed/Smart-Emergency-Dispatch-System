@@ -85,9 +85,9 @@ const IncidentCard = ({ incident, onDispatch }) => {
           </div>
           
           <div className="info-row">
-            <span className="label">Severity:</span>
+            <span className="label">Severity Level:</span>
             <span className={`value priority-${displayPriority?.toString().toLowerCase()}`}>
-              Level {displayPriority}
+               {displayPriority}
             </span>
           </div>
           
@@ -102,7 +102,7 @@ const IncidentCard = ({ incident, onDispatch }) => {
         <button 
           className="dispatch-button" 
           onClick={handleDispatch}
-          disabled={displayStatus === 'DISPATCHED' || displayStatus === 'COMPLETED' || displayStatus === 'resolved'}
+          disabled={displayStatus?.toLowerCase() !== 'pending' && displayStatus !== null}
         >
           Dispatch
         </button>

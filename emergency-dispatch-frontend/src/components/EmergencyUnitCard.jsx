@@ -2,7 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import '../styles/EmergencyUnitCard.css';
 
-const EmergencyUnitCard = ({ unit, onAssign, incident }) => {
+const EmergencyUnitCard = ({ unit, onAssign, incident, showAssignButton = true }) => {
   const handleAssign = () => {
     onAssign(unit, incident);
   };
@@ -27,14 +27,14 @@ const EmergencyUnitCard = ({ unit, onAssign, incident }) => {
 
   const getStatusText = (status) => {
     if (typeof status === 'boolean') {
-      return status ? 'AVAILABLE' : 'UNAVAILABLE';
+      return status ? 'UNAVAILABLE' : 'AVAILABLE';
     }
     return status?.toUpperCase() || 'UNKNOWN';
   };
 
   const getStatusClass = (status) => {
     if (typeof status === 'boolean') {
-      return status ? 'available' : 'unavailable';
+      return status ? 'unavailable' : 'available';
     }
     return status?.toLowerCase() || 'unknown';
   };
@@ -80,15 +80,17 @@ const EmergencyUnitCard = ({ unit, onAssign, incident }) => {
         </div>
       </div>
       
-      <div className="unit-card-footer">
-        <button 
-          className="assign-button" 
-          onClick={handleAssign}
-          disabled={unit.status === false || unit.status === 'BUSY' || unit.status === 'OFFLINE'}
-        >
-          Assign
-        </button>
-      </div>
+      {showAssignButton && (
+        <div className="unit-card-footer">
+          <button 
+            className="assign-button" 
+            onClick={handleAssign}
+            disabled={unit.status === true || unit.status === 'BUSY' || unit.status === 'OFFLINE'}
+          >
+            Assign
+          </button>
+        </div>
+      )}
     </div>
   );
 };
@@ -105,9 +107,13 @@ EmergencyUnitCard.propTypes = {
     team: PropTypes.string,
     equipment: PropTypes.string,
     responseTime: PropTypes.number,
+    latitude: PropTypes.number,
+    longtitude: PropTypes.number,
+    capacity: PropTypes.number,
   }).isRequired,
   onAssign: PropTypes.func.isRequired,
   incident: PropTypes.object,
+  showAssignButton: PropTypes.bool,
 };
 
 export default EmergencyUnitCard;

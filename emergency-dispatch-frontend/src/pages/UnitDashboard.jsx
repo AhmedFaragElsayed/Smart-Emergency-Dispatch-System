@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import apiService from '../services/apiService';
 import '../styles/UnitDashboard.css';
 
 const UnitDashboard = () => {
+  const navigate = useNavigate();
   const [units, setUnits] = useState([]);
   const [editingUnit, setEditingUnit] = useState(null);
   const [formData, setFormData] = useState({
@@ -78,23 +80,24 @@ const UnitDashboard = () => {
     setIsFormVisible(false);
   };
 
-  const unitTypes = ['Ambulance', 'Fire Truck', 'Police Car', 'Rescue Vehicle'];
+  const unitTypes = ['Ambulance', 'Fire Truck', 'Police Car'];
 
   return (
     <div className="unit-dashboard">
       <div className="dashboard-header">
+        <button className="back-button" onClick={() => navigate('/')}>← Back to Home</button>
         <h1>🚑 Emergency Unit Management</h1>
         <button 
           className="btn-primary" 
           onClick={() => setIsFormVisible(!isFormVisible)}
         >
-          {isFormVisible ? '✖ Cancel' : '➕ Add New Unit'}
+          {isFormVisible ? 'Cancel' : 'Add New Unit'}
         </button>
       </div>
 
       {isFormVisible && (
         <div className="unit-form-container">
-          <h2>{editingUnit ? '✏️ Edit Unit' : '➕ Add New Unit'}</h2>
+          <h2>{editingUnit ? 'Edit Unit' : 'Add New Unit'}</h2>
           <form onSubmit={handleSubmit} className="unit-form">
             <div className="form-row">
               <div className="form-group">
@@ -158,13 +161,13 @@ const UnitDashboard = () => {
                   checked={formData.status}
                   onChange={(e) => setFormData({...formData, status: e.target.checked})}
                 />
-                <span>Available</span>
+                <span>Unavailable (Busy)</span>
               </label>
             </div>
 
             <div className="form-actions">
               <button type="submit" className="btn-primary">
-                {editingUnit ? '💾 Update Unit' : '➕ Add Unit'}
+                {editingUnit ? ' Update Unit' : ' Add Unit'}
               </button>
               <button type="button" className="btn-secondary" onClick={resetForm}>
                 Cancel
@@ -183,33 +186,46 @@ const UnitDashboard = () => {
         ) : (
           <div className="units-grid">
             {units.map(unit => (
-              <div key={unit.unitID} className={`unit-card ${unit.status ? 'available' : 'unavailable'}`}>
+              <div key={unit.unitID} className={`unit-card ${unit.status ? 'unavailable' : 'available'}`}>
                 <div className="unit-header">
                   <div className="unit-id">#{unit.unitID}</div>
-                  <div className={`unit-status ${unit.status ? 'status-available' : 'status-unavailable'}`}>
-                    {unit.status ? '✓ Available' : '✖ Unavailable'}
+                  <div className={`unit-status ${unit.status ? 'status-unavailable' : 'status-available'}`}>
+                    {unit.status ? '✖ Unavailable' : '✓ Available'}
                   </div>
                 </div>
                 
                 <div className="unit-body">
                   <div className="unit-icon">
-                    {unit.type === 'Ambulance' && '🚑'}
-                    {unit.type === 'Fire Truck' && '🚒'}
-                    {unit.type === 'Police Car' && '🚓'}
-                    {unit.type === 'Rescue Vehicle' && '🚐'}
+                    {unit.type === 'Ambulance'}
+                    {unit.type === 'Fire Truck'}
+                    {unit.type === 'Police Car'}
                   </div>
                   <h3>{unit.type}</h3>
                   
                   <div className="unit-details">
                     <div className="detail-item">
+                      <span className="detail-label">Unit ID:</span>
+                      <span className="detail-value">#{unit.unitID}</span>
+                    </div>
+                    <div className="detail-item">
+                      <span className="detail-label">Type:</span>
+                      <span className="detail-value">{unit.type}</span>
+                    </div>
+                    <div className="detail-item">
                       <span className="detail-label">Capacity:</span>
                       <span className="detail-value">{unit.capacity} people</span>
                     </div>
                     <div className="detail-item">
-                      <span className="detail-label">Location:</span>
-                      <span className="detail-value">
-                        {unit.latitude.toFixed(6)}, {unit.longtitude.toFixed(6)}
-                      </span>
+                      <span className="detail-label">Status:</span>
+                      <span className="detail-value">{unit.status ? 'Unavailable' : 'Available'}</span>
+                    </div>
+                    <div className="detail-item">
+                      <span className="detail-label">Latitude:</span>
+                      <span className="detail-value">{unit.latitude.toFixed(6)}</span>
+                    </div>
+                    <div className="detail-item">
+                      <span className="detail-label">Longitude:</span>
+                      <span className="detail-value">{unit.longtitude.toFixed(6)}</span>
                     </div>
                   </div>
                 </div>

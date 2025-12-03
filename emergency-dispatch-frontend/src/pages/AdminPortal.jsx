@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import IncidentCard from '../components/IncidentCard';
 import EmergencyUnitCard from '../components/EmergencyUnitCard';
 import websocketService from '../services/websocketService';
@@ -6,14 +7,17 @@ import apiService from '../services/apiService';
 import '../styles/AdminPortal.css';
 
 const AdminPortal = () => {
+  const navigate = useNavigate();
   const [incidents, setIncidents] = useState([]);
   const [emergencyUnits, setEmergencyUnits] = useState([]);
   const [selectedIncident, setSelectedIncident] = useState(null);
+  const [selectedUnits, setSelectedUnits] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showUnitsModal, setShowUnitsModal] = useState(false);
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [filterType, setFilterType] = useState('ALL');
+  const [filterSeverityLevel, setFilterSeverityLevel] = useState('ALL');
 
   useEffect(() => {
 
@@ -122,6 +126,53 @@ const AdminPortal = () => {
     }
   };
 
+  const handleToggleUnitSelection = (unit) => {
+    // Don't allow selecting unavailable units
+    if (unit.status === true || unit.status === 'BUSY' || unit.status === 'OFFLINE') {
+      return;
+    }
+    
+    const unitId = unit.unitID || unit.id;
+    setSelectedUnits((prev) => {
+      if (prev.includes(unitId)) {
+        return prev.filter((id) => id !== unitId);
+      } else {
+        return [...prev, unitId];
+      }
+    });
+  };
+
+  const handleAssignSelectedUnits = async () => {
+    if (selectedUnits.length === 0) {
+      alert('Please select at least one unit to dispatch');
+      return;
+    }
+
+    console.log('Assigning units:', selectedUnits, 'to incident:', selectedIncident);
+
+    try {
+      // Assign all selected units
+      const assignmentPromises = selectedUnits.map((unitId) =>
+        apiService.assignUnit(unitId, selectedIncident.incidentId || selectedIncident.id)
+      );
+
+      await Promise.all(assignmentPromises);
+      
+      setShowUnitsModal(false);
+      setSelectedIncident(null);
+      setSelectedUnits([]);
+      setEmergencyUnits([]);
+      
+      // Refresh incidents
+      loadIncidentsViaAPI();
+      
+      alert(`${selectedUnits.length} unit(s) dispatched successfully! Incident status updated to "dispatched".`);
+    } catch (error) {
+      console.error('Error assigning units:', error);
+      alert(`Failed to assign units: ${error.message}`);
+    }
+  };
+
   const handleAssignUnit = async (unit, incident) => {
     console.log('Assigning unit:', unit, 'to incident:', incident);
 
@@ -129,6 +180,7 @@ const AdminPortal = () => {
       await apiService.assignUnit(unit.unitID || unit.id, incident.incidentId || incident.id);
       setShowUnitsModal(false);
       setSelectedIncident(null);
+      setSelectedUnits([]);
       setEmergencyUnits([]);
       // Refresh incidents
       loadIncidentsViaAPI();
@@ -142,18 +194,33 @@ const AdminPortal = () => {
   const closeModal = () => {
     setShowUnitsModal(false);
     setSelectedIncident(null);
+    setSelectedUnits([]);
     setEmergencyUnits([]);
   };
 
+  const getNeedsLabel = (type) => {
+    const typeStr = type?.toLowerCase() || '';
+    if (typeStr.includes('fire')) return 'Damaged Buildings:';
+    if (typeStr.includes('medical')) return 'Injured People:';
+    if (typeStr.includes('police')) return 'Criminals:';
+    return 'Needs:';
+  };
+
   const filteredIncidents = incidents.filter((incident) => {
-    const statusMatch = filterStatus === 'ALL' || incident.status === filterStatus;
+    // Treat null/undefined status as "PENDING"
+    const incidentStatus = incident.status || 'PENDING';
+    const statusMatch = filterStatus === 'ALL' || 
+      incidentStatus.toUpperCase() === filterStatus.toUpperCase();
     const typeMatch = filterType === 'ALL' || incident.type?.toLowerCase() === filterType.toLowerCase();
-    return statusMatch && typeMatch;
+    const severityMatch = filterSeverityLevel === 'ALL' || 
+      incident.severityLevel?.toUpperCase() === filterSeverityLevel.toUpperCase();
+    return statusMatch && typeMatch && severityMatch;
   });
 
   return (
     <div className="admin-portal">
       <header className="admin-header">
+        <button className="back-button" onClick={() => navigate('/')}>← Back to Home</button>
         <h1>🚨 Emergency Dispatch Admin Portal</h1>
         <div className="connection-status">
           <span className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}></span>
@@ -168,7 +235,8 @@ const AdminPortal = () => {
             <option value="ALL">All</option>
             <option value="PENDING">Pending</option>
             <option value="DISPATCHED">Dispatched</option>
-            <option value="COMPLETED">Completed</option>
+            <option value="IN_PROGRESS">In Progress</option>
+            <option value="COMPLETED">Resolved</option>
           </select>
         </div>
         <div className="filter-group">
@@ -179,6 +247,16 @@ const AdminPortal = () => {
             <option value="POLICE">Police</option>
             <option value="FIRE">Fire</option>
           </select>
+        </div>
+        <div className="filter-group">  
+          <label>Severity Level </label>
+          <select value={filterSeverityLevel} onChange={(e) => setFilterSeverityLevel(e.target.value)}>
+          <option value="ALL">All</option>
+          <option value="Low">Low</option>
+          <option value="Medium">Medium</option>
+          <option value="High">High</option>
+          <option value="Critical">Critical</option>
+        </select>          
         </div>
         <div className="incidents-count">
           <strong>{filteredIncidents.length}</strong> incident(s)
@@ -223,26 +301,52 @@ const AdminPortal = () => {
                 <div className="selected-incident-info">
                   <h3>Incident Details</h3>
                   <p><strong>Type:</strong> {selectedIncident.type}</p>
-                  <p><strong>Location:</strong> {selectedIncident.location}</p>
-                  <p><strong>Priority:</strong> {selectedIncident.priority}</p>
+                  <p><strong>Location:</strong> {selectedIncident.latitude?.toFixed(4)}, {selectedIncident.longtitude?.toFixed(4)}</p>
+                  <p><strong>Priority:</strong> {selectedIncident.severityLevel}</p>
+                  <p><strong>{getNeedsLabel(selectedIncident.type)}</strong> {selectedIncident.needs || 0}</p>
                 </div>
               )}
-              {emergencyUnits.length === 0 ? (
-                <div className="no-units">
-                  <p>No available units found for this incident type</p>
-                </div>
-              ) : (
-                <div className="units-grid">
-                  {emergencyUnits.map((unit) => (
-                    <EmergencyUnitCard
-                      key={unit.unitID || unit.id}
-                      unit={unit}
-                      incident={selectedIncident}
-                      onAssign={handleAssignUnit}
-                    />
-                  ))}
-                </div>
-              )}
+              <div className="modal-body-content">
+                {emergencyUnits.length === 0 ? (
+                  <div className="no-units">
+                    <p>No available units found for this incident type</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="units-grid">
+                      {emergencyUnits.map((unit) => {
+                        const isUnavailable = unit.status === true || unit.status === 'BUSY' || unit.status === 'OFFLINE';
+                        return (
+                          <div
+                            key={unit.unitID || unit.id}
+                            className={`unit-card-wrapper ${
+                              selectedUnits.includes(unit.unitID || unit.id) ? 'selected' : ''
+                            } ${isUnavailable ? 'disabled' : ''}`}
+                            onClick={() => handleToggleUnitSelection(unit)}
+                          >
+                            <EmergencyUnitCard
+                              key={unit.unitID || unit.id}
+                              unit={unit}
+                              incident={selectedIncident}
+                              onAssign={handleAssignUnit}
+                              showAssignButton={false}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="modal-footer">
+                      <button
+                        className="dispatch-selected-btn"
+                        onClick={handleAssignSelectedUnits}
+                        disabled={selectedUnits.length === 0}
+                      >
+                        Dispatch {selectedUnits.length} Selected Unit{selectedUnits.length !== 1 ? 's' : ''}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>
