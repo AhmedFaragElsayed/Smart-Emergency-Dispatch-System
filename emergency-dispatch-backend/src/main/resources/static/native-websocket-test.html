@@ -292,6 +292,44 @@
         </div>
     </div>
     
+    <!-- Emergency Units System Monitor -->
+    <div id="unitsMonitor" style="display: none; border: 1px solid #ddd; padding: 15px; margin: 10px 0; background-color: #f0fff4;">
+        <h3>🚨 Emergency Units System Monitor</h3>
+        <p style="color: #666; font-size: 14px;">Real-time monitoring of all emergency units and their current assignments</p>
+        
+        <div style="margin: 10px 0;">
+            <button class="send-btn" onclick="refreshUnitsMonitor()" style="font-size: 14px; background-color: #17a2b8;">🔄 Refresh All Units</button>
+            <button class="send-btn" onclick="filterAvailableUnits()" style="font-size: 14px; background-color: #28a745;">✓ Show Available Only</button>
+            <button class="send-btn" onclick="filterBusyUnits()" style="font-size: 14px; background-color: #ffc107;">⚠ Show Busy Only</button>
+        </div>
+        
+        <div style="margin-top: 15px; padding: 10px; background-color: white; border: 1px solid #ddd; border-radius: 4px;">
+            <h4 style="margin: 0 0 10px 0; color: #007bff;">🚒 Live Units Status:</h4>
+            <div id="unitsMonitorList" style="max-height: 500px; overflow-y: auto;">
+                <em style="color: #999;">Loading emergency units...</em>
+            </div>
+        </div>
+        
+        <div style="margin-top: 15px; padding: 10px; background-color: #e7f3ff; border-left: 4px solid #2196F3;">
+            <h4 style="margin: 0 0 10px 0; color: #0c5460;">📊 System Statistics:</h4>
+            <div id="unitsStats" style="font-size: 14px; color: #333;">
+                <div>Total Units: <strong id="totalUnits">0</strong></div>
+                <div>Available Units: <strong id="availableUnits" style="color: #28a745;">0</strong></div>
+                <div>Busy Units: <strong id="busyUnits" style="color: #dc3545;">0</strong></div>
+            </div>
+        </div>
+        
+        <div style="margin-top: 15px; padding: 10px; background-color: #fff3cd; border-left: 4px solid #ffc107;">
+            <h4 style="margin: 0 0 10px 0; color: #856404;">💡 Features:</h4>
+            <ul style="margin: 5px 0; padding-left: 20px; font-size: 13px; color: #666;">
+                <li>Real-time updates when assignments are created/completed</li>
+                <li>Shows current assignment details for busy units</li>
+                <li>Color-coded status (Green=Available, Red=Busy)</li>
+                <li>Unit location and capacity information</li>
+            </ul>
+        </div>
+    </div>
+    
     <div id="messages"></div>
     
     <script>
@@ -317,6 +355,7 @@
             const locationUpdateForm = document.getElementById('locationUpdateForm');
             const createAssignmentForm = document.getElementById('createAssignmentForm');
             const assignmentMonitor = document.getElementById('assignmentMonitor');
+            const unitsMonitor = document.getElementById('unitsMonitor');
             
             if (isConnected) {
                 statusDiv.textContent = 'Connected';
@@ -327,6 +366,7 @@
                 locationUpdateForm.style.display = 'block';
                 createAssignmentForm.style.display = 'block';
                 assignmentMonitor.style.display = 'block';
+                unitsMonitor.style.display = 'block';
             } else {
                 statusDiv.textContent = 'Disconnected';
                 statusDiv.className = 'status disconnected';
@@ -336,6 +376,7 @@
                 locationUpdateForm.style.display = 'none';
                 createAssignmentForm.style.display = 'none';
                 assignmentMonitor.style.display = 'none';
+                unitsMonitor.style.display = 'none';
             }
         }
 
@@ -405,8 +446,21 @@
                         const subscribeAssignmentsErrorFrame = 'SUBSCRIBE\nid:sub-7\ndestination:/topic/assignments/errors\n\n\0';
                         ws.send(subscribeAssignmentsErrorFrame);
                         
+                        // Subscribe to units monitor
+                        log('Subscribing to /topic/units-monitor...');
+                        const subscribeUnitsMonitorFrame = 'SUBSCRIBE\nid:sub-8\ndestination:/topic/units-monitor\n\n\0';
+                        ws.send(subscribeUnitsMonitorFrame);
+                        
+                        // Subscribe to units monitor updates
+                        log('Subscribing to /topic/units-monitor/update...');
+                        const subscribeUnitsMonitorUpdateFrame = 'SUBSCRIBE\nid:sub-9\ndestination:/topic/units-monitor/update\n\n\0';
+                        ws.send(subscribeUnitsMonitorUpdateFrame);
+                        
                         // Request initial assignment list
                         setTimeout(() => requestAllAssignments(), 500);
+                        
+                        // Request initial units monitor status
+                        setTimeout(() => refreshUnitsMonitor(), 1000);
                     } else if (event.data.includes('MESSAGE')) {
                         // Parse STOMP MESSAGE frame
                         const lines = event.data.split('\n');
@@ -424,6 +478,12 @@
                                 if (destination.includes('/topic/unit-location')) {
                                     log('Location update received: ' + JSON.stringify(parsed, null, 2), 'success');
                                     displayLocationUpdate(parsed);
+                                } else if (destination.includes('/topic/units-monitor/update')) {
+                                    log('Unit status update received', 'success');
+                                    updateSingleUnitDisplay(parsed);
+                                } else if (destination.includes('/topic/units-monitor')) {
+                                    log('All units status received: ' + parsed.length + ' units', 'success');
+                                    displayAllUnits(parsed);
                                 } else if (destination.includes('/topic/assignments/all')) {
                                     log('All assignments received: ' + parsed.length + ' assignments', 'success');
                                     displayAssignmentsList(parsed);
@@ -928,6 +988,143 @@
                 log('Error deactivating assignment: ' + error.message, 'error');
                 alert('Error deactivating assignment: ' + error.message);
             }
+        }
+
+        // Emergency Units Monitor Functions
+        let allUnitsData = [];
+        
+        async function refreshUnitsMonitor() {
+            log('Requesting all emergency units status...');
+            try {
+                const response = await fetch('http://localhost:9696/api/monitor/units');
+                if (response.ok) {
+                    const units = await response.json();
+                    log('Retrieved ' + units.length + ' emergency units', 'success');
+                    allUnitsData = units;
+                    displayAllUnits(units);
+                } else {
+                    log('Failed to retrieve units: ' + response.statusText, 'error');
+                }
+            } catch (error) {
+                log('Error retrieving units: ' + error.message, 'error');
+            }
+        }
+        
+        function filterAvailableUnits() {
+            const availableUnits = allUnitsData.filter(unit => !unit.hasActiveAssignment);
+            log('Filtering to show ' + availableUnits.length + ' available units');
+            displayAllUnits(availableUnits);
+        }
+        
+        function filterBusyUnits() {
+            const busyUnits = allUnitsData.filter(unit => unit.hasActiveAssignment);
+            log('Filtering to show ' + busyUnits.length + ' busy units');
+            displayAllUnits(busyUnits);
+        }
+        
+        function displayAllUnits(units) {
+            const unitsListDiv = document.getElementById('unitsMonitorList');
+            
+            if (!units || units.length === 0) {
+                unitsListDiv.innerHTML = '<em style="color: #999;">No emergency units found</em>';
+                updateUnitsStats(0, 0, 0);
+                return;
+            }
+            
+            unitsListDiv.innerHTML = '';
+            
+            let availableCount = 0;
+            let busyCount = 0;
+            
+            units.forEach(unit => {
+                if (unit.hasActiveAssignment) {
+                    busyCount++;
+                } else {
+                    availableCount++;
+                }
+                const unitDiv = createUnitElement(unit);
+                unitsListDiv.appendChild(unitDiv);
+            });
+            
+            updateUnitsStats(units.length, availableCount, busyCount);
+        }
+        
+        function updateSingleUnitDisplay(unit) {
+            const unitDiv = document.getElementById('unit-' + unit.unitID);
+            if (unitDiv) {
+                unitDiv.replaceWith(createUnitElement(unit));
+            } else {
+                // Unit not in current view, refresh all
+                refreshUnitsMonitor();
+            }
+            
+            // Update the stored data
+            const index = allUnitsData.findIndex(u => u.unitID === unit.unitID);
+            if (index !== -1) {
+                allUnitsData[index] = unit;
+            }
+        }
+        
+        function createUnitElement(unit) {
+            const unitDiv = document.createElement('div');
+            unitDiv.id = 'unit-' + unit.unitID;
+            
+            const isBusy = unit.hasActiveAssignment;
+            const statusColor = isBusy ? '#dc3545' : '#28a745';
+            const statusText = isBusy ? '🔴 BUSY' : '🟢 AVAILABLE';
+            const statusBg = isBusy ? '#f8d7da' : '#d4edda';
+            
+            unitDiv.style.cssText = `
+                padding: 12px;
+                margin: 8px 0;
+                background-color: white;
+                border-left: 4px solid ${statusColor};
+                border-radius: 4px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            `;
+            
+            let assignmentInfo = '';
+            if (isBusy && unit.activeAssignment) {
+                const assignment = unit.activeAssignment;
+                assignmentInfo = `
+                    <div style="margin-top: 8px; padding: 8px; background-color: #fff3cd; border-left: 3px solid #ffc107; border-radius: 3px;">
+                        <strong style="color: #856404;">📋 Current Assignment:</strong><br>
+                        <span style="font-size: 12px; color: #666;">
+                            Assignment #${assignment.assignmentId} | 
+                            👤 ${assignment.userName} | 
+                            🚨 Incident #${assignment.incidentId} (${assignment.incidentType}) | 
+                            ⚠ ${assignment.incidentSeverity}<br>
+                            📅 Since: ${assignment.assignmentTime}
+                        </span>
+                    </div>
+                `;
+            }
+            
+            unitDiv.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div style="flex: 1;">
+                        <strong style="font-size: 16px; color: #333;">🚒 Unit #${unit.unitID}</strong>
+                        <span style="margin-left: 10px; padding: 3px 8px; background-color: ${statusBg}; color: ${statusColor}; font-size: 11px; font-weight: bold; border-radius: 3px;">
+                            ${statusText}
+                        </span>
+                        <br>
+                        <span style="color: #666; font-size: 13px;">
+                            <strong>Type:</strong> ${unit.type} | 
+                            <strong>Capacity:</strong> ${unit.capacity} | 
+                            <strong>Location:</strong> ${unit.latitude.toFixed(4)}, ${unit.longtitude.toFixed(4)}
+                        </span>
+                        ${assignmentInfo}
+                    </div>
+                </div>
+            `;
+            
+            return unitDiv;
+        }
+        
+        function updateUnitsStats(total, available, busy) {
+            document.getElementById('totalUnits').textContent = total;
+            document.getElementById('availableUnits').textContent = available;
+            document.getElementById('busyUnits').textContent = busy;
         }
 
         function disconnect() {

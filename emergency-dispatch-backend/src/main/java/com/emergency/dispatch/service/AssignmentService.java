@@ -39,6 +39,9 @@ public class AssignmentService {
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
+    @Autowired
+    private EmergencyUnitMonitorService monitorService;
+
     
     @Transactional
     public Assignment createAssignment(Long userId, Long incidentId, Long unitId) {
@@ -53,6 +56,14 @@ public class AssignmentService {
         // Validate emergency unit exists
         EmergencyUnit emergencyUnit = emergencyUnitRepository.findById(unitId)
                 .orElseThrow(() -> new RuntimeException("Emergency Unit with ID " + unitId + " not found"));
+
+        // Check if emergency unit already has an active assignment
+        List<Assignment> activeAssignments = assignmentRepository.findByEmergencyUnitAndIsActiveTrue(emergencyUnit);
+        if (!activeAssignments.isEmpty()) {
+            throw new RuntimeException("Emergency Unit with ID " + unitId + 
+                " already has an active assignment (Assignment ID: " + activeAssignments.get(0).getAssignmentId() + 
+                "). Please deactivate it first or choose another unit.");
+        }
 
         // Create new assignment
         Assignment assignment = new Assignment();
@@ -72,6 +83,9 @@ public class AssignmentService {
         
         // Broadcast WebSocket notification about the new active assignment
         messagingTemplate.convertAndSend("/topic/assignments", (Object) savedAssignment);
+        
+        // Broadcast updated emergency unit status to monitoring system
+        monitorService.broadcastUnitStatusUpdate(unitId);
         
         return savedAssignment;
     }
@@ -99,6 +113,9 @@ public class AssignmentService {
         
         // Broadcast WebSocket notification about the deactivated assignment
         messagingTemplate.convertAndSend("/topic/assignments", (Object) savedAssignment);
+        
+        // Broadcast updated emergency unit status to monitoring system
+        monitorService.broadcastUnitStatusUpdate(emergencyUnit.getUnitID());
         
         return savedAssignment;
     }

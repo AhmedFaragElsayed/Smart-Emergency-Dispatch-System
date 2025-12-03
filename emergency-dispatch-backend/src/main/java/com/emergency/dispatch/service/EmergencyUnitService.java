@@ -12,12 +12,18 @@ import com.emergency.dispatch.repository.EmergencyUnitRepository;
 @Service
 public class EmergencyUnitService {
 
-    @Autowired
+     @Autowired
     private EmergencyUnitRepository emergencyUnitRepository;
+
+    @Autowired
+    private EmergencyUnitMonitorService monitorService;
 
     public EmergencyUnit createEmergencyUnit(EmergencyUnit emergencyUnit) {
         try {
-            return emergencyUnitRepository.save(emergencyUnit);
+            EmergencyUnit savedUnit = emergencyUnitRepository.save(emergencyUnit);
+            // Broadcast the new unit to monitoring system
+            monitorService.broadcastUnitStatusUpdate(savedUnit.getUnitID());
+            return savedUnit;
         } catch (Exception e) {
             System.out.println("Error creating emergency unit: " + e.getMessage());
             throw new RuntimeException("Failed to create emergency unit: " + e.getMessage());
@@ -40,7 +46,10 @@ public class EmergencyUnitService {
                     unit.setLongtitude(unitDetails.getLongtitude());
                     unit.setCapacity(unitDetails.getCapacity());
                     unit.setStatus(unitDetails.getStatus());
-                    return emergencyUnitRepository.save(unit);
+                    EmergencyUnit savedUnit = emergencyUnitRepository.save(unit);
+                    // Broadcast all data changes to monitoring system
+                    monitorService.broadcastUnitStatusUpdate(savedUnit.getUnitID());
+                    return savedUnit;
                 })
                 .orElseThrow(() -> new RuntimeException("Emergency unit not found with id: " + unitID));
     }
@@ -50,7 +59,10 @@ public class EmergencyUnitService {
                 .map(unit -> {
                     unit.setLatitude(latitude);
                     unit.setLongtitude(longitude);
-                    return emergencyUnitRepository.save(unit);
+                    EmergencyUnit savedUnit = emergencyUnitRepository.save(unit);
+                    // Broadcast location change to monitoring system
+                    monitorService.broadcastUnitStatusUpdate(savedUnit.getUnitID());
+                    return savedUnit;
                 })
                 .orElseThrow(() -> new RuntimeException("Emergency unit not found with id: " + unitID));
     }
