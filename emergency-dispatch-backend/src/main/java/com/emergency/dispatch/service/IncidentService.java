@@ -1,5 +1,6 @@
 package com.emergency.dispatch.service;
 
+
 import java.util.List;
 import java.util.Optional;
 
@@ -29,6 +30,7 @@ public class IncidentService {
             throw new RuntimeException("Failed to create incident: " + e.getMessage());
         }
     }
+        
 
     public Optional<Incident> getIncidentById(Long incidentId) {
         return incidentRepository.findById(incidentId);
@@ -47,6 +49,9 @@ public class IncidentService {
                     incident.setNeeds(incidentDetails.getNeeds());
                     incident.setSeverityLevel(incidentDetails.getSeverityLevel());
                     incident.setReportedTime(incidentDetails.getReportedTime());
+                    if (incidentDetails.getStatus() != null) {
+                        incident.setStatus(incidentDetails.getStatus());
+                    }
                     return incidentRepository.save(incident);
                 })
                 .orElseThrow(() -> new RuntimeException("Incident not found with id: " + incidentId));

@@ -1,34 +1,65 @@
 import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
+import AdminPortal from './pages/AdminPortal'
+import UnitDashboard from './pages/UnitDashboard'
+// import userDashBoard from './pages/userDashBoard'
 import './App.css'
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [currentPage, setCurrentPage] = useState('home')
+
+  const renderPage = () => {
+    switch (currentPage) {
+      case 'admin':
+        return <AdminPortal />
+      case 'unit':
+        return <UnitDashboard />
+      case 'user':
+        return <userDashBoard />
+      default:
+        return (
+          <div className="home-page">
+            <div className="hero">
+              <h1>🚨 Smart Emergency Dispatch System</h1>
+            </div>
+            
+            <div className="navigation-cards">
+              <div className="nav-card" onClick={() => setCurrentPage('admin')}>
+                <div className="nav-card-icon">👨‍💼</div>
+                <h2>Admin Portal</h2>
+                <p>Manage incidents and dispatch emergency units</p>
+                <button className="nav-button">Go to Admin Portal →</button>
+              </div>
+              
+              <div className="nav-card" onClick={() => setCurrentPage('unit')}>
+                <div className="nav-card-icon">🚑</div>
+                <h2>Unit Dashboard</h2>
+                <p>Manage emergency units and their availability</p>
+                <button className="nav-button">Go to Unit Dashboard →</button>
+              </div>
+              
+              <div className="nav-card" onClick={() => setCurrentPage('user')}>
+                <div className="nav-card-icon">👨‍💼👩‍💼</div>
+                <h2>User Dashboard</h2>
+                <p>Users adding and removing</p>
+                <button className="nav-button">Go to User Dashboard →</button>
+              </div>
+            </div>
+          </div>
+        )
+    }
+  }
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
+    <div className="app">
+      {currentPage !== 'home' && (
+        <nav className="top-nav">
+          <button className="back-button" onClick={() => setCurrentPage('home')}>
+            ← Back to Home
+          </button>
+        </nav>
+      )}
+      {renderPage()}
+    </div>
   )
 }
 

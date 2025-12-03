@@ -264,6 +264,37 @@
         </div>
     </div>
     
+    <!-- Update Incident Status Form -->
+    <div id="updateIncidentStatusForm" style="display: none; border: 1px solid #ddd; padding: 15px; margin: 10px 0; background-color: #fff8e1;">
+        <h3>📝 Update Incident Status</h3>
+        <p style="color: #666; font-size: 14px;">Change the status of an existing incident</p>
+        
+        <fieldset style="border: 1px solid #ccc; padding: 10px; margin: 10px 0;">
+            <legend>Incident Status Update</legend>
+            <div class="form-group">
+                <label>Incident ID: <span style="color: red;">*</span></label>
+                <input type="number" id="statusIncidentId" placeholder="Enter Incident ID">
+            </div>
+            <div class="form-group">
+                <label>New Status: <span style="color: red;">*</span></label>
+                <select id="incidentStatus">
+                    <option value="">-- Select Status --</option>
+                    <option value="PENDING">🔴 PENDING - Awaiting dispatch</option>
+                    <option value="DISPATCHED">🟡 DISPATCHED - Unit assigned</option>
+                    <option value="IN_PROGRESS">🔵 IN PROGRESS - Unit on scene</option>
+                    <option value="RESOLVED">🟢 RESOLVED - Incident completed</option>
+                    <option value="CANCELLED">⚫ CANCELLED - Incident cancelled</option>
+                </select>
+            </div>
+        </fieldset>
+        
+        <button class="send-btn" onclick="updateIncidentStatus()" style="margin-top: 10px; font-size: 16px; padding: 10px 20px; background-color: #ff9800;">🔄 Update Status</button>
+        
+        <div style="margin-top: 10px; padding: 8px; background-color: #fff3cd; border-left: 4px solid #ffc107; font-size: 12px; color: #856404;">
+            💡 <strong>Tip:</strong> Status updates are processed via REST API and reflected in real-time through WebSocket
+        </div>
+    </div>
+    
     <!-- Assignment Monitoring Section -->
     <div id="assignmentMonitor" style="display: none; border: 1px solid #ddd; padding: 15px; margin: 10px 0; background-color: #f9f9f9;">
         <h3>📋 Real-Time Assignment Monitor</h3>
@@ -392,6 +423,7 @@
             const notificationForm = document.getElementById('notificationForm');
             const locationUpdateForm = document.getElementById('locationUpdateForm');
             const createAssignmentForm = document.getElementById('createAssignmentForm');
+            const updateIncidentStatusForm = document.getElementById('updateIncidentStatusForm');
             const assignmentMonitor = document.getElementById('assignmentMonitor');
             const unitsMonitor = document.getElementById('unitsMonitor');
             const incidentsMonitor = document.getElementById('incidentsMonitor');
@@ -404,6 +436,7 @@
                 notificationForm.style.display = 'block';
                 locationUpdateForm.style.display = 'block';
                 createAssignmentForm.style.display = 'block';
+                updateIncidentStatusForm.style.display = 'block';
                 assignmentMonitor.style.display = 'block';
                 unitsMonitor.style.display = 'block';
                 incidentsMonitor.style.display = 'block';
@@ -415,6 +448,7 @@
                 notificationForm.style.display = 'none';
                 locationUpdateForm.style.display = 'none';
                 createAssignmentForm.style.display = 'none';
+                updateIncidentStatusForm.style.display = 'none';
                 assignmentMonitor.style.display = 'none';
                 unitsMonitor.style.display = 'none';
                 incidentsMonitor.style.display = 'none';
@@ -896,6 +930,67 @@
             } catch (error) {
                 log('Error creating assignment: ' + error.message, 'error');
                 alert('Error creating assignment: ' + error.message);
+            }
+        }
+
+        async function updateIncidentStatus() {
+            const incidentId = parseInt(document.getElementById('statusIncidentId').value);
+            const newStatus = document.getElementById('incidentStatus').value;
+
+            // Validate inputs
+            if (isNaN(incidentId) || incidentId <= 0) {
+                log('Incident ID is required!', 'error');
+                alert('Incident ID is required! Please enter a valid Incident ID.');
+                return;
+            }
+
+            if (!newStatus) {
+                log('Status is required!', 'error');
+                alert('Please select a status for the incident.');
+                return;
+            }
+
+            log(`Updating incident ${incidentId} status to ${newStatus} via REST API...`);
+
+            try {
+                // First, get the current incident data
+                const getResponse = await fetch(`http://localhost:9696/api/incidents/${incidentId}`);
+                if (!getResponse.ok) {
+                    log('Incident not found with ID: ' + incidentId, 'error');
+                    alert('Incident not found! Please check the Incident ID.');
+                    return;
+                }
+
+                const currentIncident = await getResponse.json();
+                
+                // Update the status
+                currentIncident.status = newStatus;
+
+                // Send the update
+                const updateResponse = await fetch(`http://localhost:9696/api/incidents/${incidentId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(currentIncident)
+                });
+
+                if (updateResponse.ok) {
+                    const updatedIncident = await updateResponse.json();
+                    log(`Incident ${incidentId} status updated to ${newStatus} successfully!`, 'success');
+                    alert(`✅ Incident #${incidentId} status updated to ${newStatus}`);
+                    
+                    // Clear the form
+                    document.getElementById('statusIncidentId').value = '';
+                    document.getElementById('incidentStatus').value = '';
+                } else {
+                    const errorText = await updateResponse.text();
+                    log('Failed to update incident status: ' + errorText, 'error');
+                    alert('Failed to update incident status. Check console for details.');
+                }
+            } catch (error) {
+                log('Error updating incident status: ' + error.message, 'error');
+                alert('Error updating incident status: ' + error.message);
             }
         }
 

@@ -2,6 +2,8 @@ package com.emergency.dispatch.model;
 
 import java.time.LocalDate;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -21,6 +23,7 @@ import lombok.NoArgsConstructor;
 @Data
 @Builder
 @Table(name = "Notification")
+@JsonIgnoreProperties("hibernateLazyInitializer")
 public class Notification {
     
    @Id

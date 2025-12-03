@@ -1,0 +1,133 @@
+.emergency-unit-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.emergency-unit-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.unit-card-header {
+  padding: 16px 20px;
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.unit-icon {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.unit-header-info {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.unit-header-info h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.availability-badge {
+  padding: 4px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.3);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.availability-badge.available {
+  background: rgba(46, 204, 113, 0.8);
+}
+
+.availability-badge.busy {
+  background: rgba(231, 76, 60, 0.8);
+}
+
+.availability-badge.offline {
+  background: rgba(149, 165, 166, 0.8);
+}
+
+.availability-badge.en-route {
+  background: rgba(241, 196, 15, 0.8);
+}
+
+.unit-card-body {
+  padding: 20px;
+  flex: 1;
+}
+
+.unit-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.info-row {
+  display: flex;
+  gap: 8px;
+}
+
+.info-row .label {
+  font-weight: 600;
+  color: #555;
+  min-width: 100px;
+}
+
+.info-row .value {
+  color: #333;
+  flex: 1;
+  word-break: break-word;
+}
+
+.info-row .value.eta {
+  color: #27ae60;
+  font-weight: 600;
+}
+
+.unit-card-footer {
+  padding: 16px 20px;
+  border-top: 1px solid #ecf0f1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.assign-button {
+  background: #27ae60;
+  color: white;
+  border: none;
+  padding: 10px 24px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  text-transform: uppercase;
+}
+
+.assign-button:hover:not(:disabled) {
+  background: #229954;
+}
+
+.assign-button:disabled {
+  background: #95a5a6;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.assign-button:active:not(:disabled) {
+  transform: scale(0.98);
+}

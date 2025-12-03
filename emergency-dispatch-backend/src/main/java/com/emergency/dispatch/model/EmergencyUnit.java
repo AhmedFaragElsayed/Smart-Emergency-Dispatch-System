@@ -3,6 +3,8 @@ package com.emergency.dispatch.model;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -19,6 +21,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @Table(name="EmergencyUnit")
 @Data
+@JsonIgnoreProperties({"assignments", "notifications"})
 public class EmergencyUnit {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
