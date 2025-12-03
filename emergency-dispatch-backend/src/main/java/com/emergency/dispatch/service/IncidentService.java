@@ -12,12 +12,18 @@ import com.emergency.dispatch.repository.IncidentRepository;
 @Service
 public class IncidentService {
 
-    @Autowired
+     @Autowired
     private IncidentRepository incidentRepository;
+
+    @Autowired
+    private IncidentMonitorService monitorService;
 
     public Incident createIncident(Incident incident) {
         try {
-            return incidentRepository.save(incident);
+            Incident savedIncident = incidentRepository.save(incident);
+            // Broadcast the update to all monitoring clients
+            monitorService.broadcastIncidentUpdate(savedIncident.getIncidentId());
+            return savedIncident;
         } catch (Exception e) {
             System.out.println("Error creating incident: " + e.getMessage());
             throw new RuntimeException("Failed to create incident: " + e.getMessage());
@@ -33,7 +39,7 @@ public class IncidentService {
     }
 
     public Incident updateIncident(Long incidentId, Incident incidentDetails) {
-        return incidentRepository.findById(incidentId)
+        Incident updatedIncident = incidentRepository.findById(incidentId)
                 .map(incident -> {
                     incident.setType(incidentDetails.getType());
                     incident.setLatitude(incidentDetails.getLatitude());
@@ -44,11 +50,17 @@ public class IncidentService {
                     return incidentRepository.save(incident);
                 })
                 .orElseThrow(() -> new RuntimeException("Incident not found with id: " + incidentId));
+        
+        // Broadcast the update to all monitoring clients
+        monitorService.broadcastIncidentUpdate(incidentId);
+        return updatedIncident;
     }
 
     public void deleteIncident(Long incidentId) {
         if (incidentRepository.existsById(incidentId)) {
             incidentRepository.deleteById(incidentId);
+            // Broadcast the deletion to all monitoring clients
+            monitorService.broadcastIncidentDeletion(incidentId);
         } else {
             throw new RuntimeException("Incident not found with id: " + incidentId);
         }

@@ -330,6 +330,44 @@
         </div>
     </div>
     
+    <!-- Incidents System Monitor -->
+    <div id="incidentsMonitor" style="display: none; border: 1px solid #ddd; padding: 15px; margin: 10px 0; background-color: #fff5f5;">
+        <h3>🚨 Incidents System Monitor</h3>
+        <p style="color: #666; font-size: 14px;">Real-time monitoring of all incidents and their assignment status</p>
+        
+        <div style="margin: 10px 0;">
+            <button class="send-btn" onclick="refreshIncidentsMonitor()" style="font-size: 14px; background-color: #17a2b8;">🔄 Refresh All Incidents</button>
+            <button class="send-btn" onclick="filterUnassignedIncidents()" style="font-size: 14px; background-color: #dc3545;">⚠ Show Unassigned Only</button>
+            <button class="send-btn" onclick="filterAssignedIncidents()" style="font-size: 14px; background-color: #28a745;">✓ Show Assigned Only</button>
+        </div>
+        
+        <div style="margin-top: 15px; padding: 10px; background-color: white; border: 1px solid #ddd; border-radius: 4px;">
+            <h4 style="margin: 0 0 10px 0; color: #007bff;">🚨 Live Incidents Status:</h4>
+            <div id="incidentsMonitorList" style="max-height: 500px; overflow-y: auto;">
+                <em style="color: #999;">Loading incidents...</em>
+            </div>
+        </div>
+        
+        <div style="margin-top: 15px; padding: 10px; background-color: #ffe7e7; border-left: 4px solid #dc3545;">
+            <h4 style="margin: 0 0 10px 0; color: #721c24;">📊 Incident Statistics:</h4>
+            <div id="incidentsStats" style="font-size: 14px; color: #333;">
+                <div>Total Incidents: <strong id="totalIncidents">0</strong></div>
+                <div>Assigned Incidents: <strong id="assignedIncidents" style="color: #28a745;">0</strong></div>
+                <div>Unassigned Incidents: <strong id="unassignedIncidents" style="color: #dc3545;">0</strong></div>
+            </div>
+        </div>
+        
+        <div style="margin-top: 15px; padding: 10px; background-color: #fff3cd; border-left: 4px solid #ffc107;">
+            <h4 style="margin: 0 0 10px 0; color: #856404;">💡 Features:</h4>
+            <ul style="margin: 5px 0; padding-left: 20px; font-size: 13px; color: #666;">
+                <li>Real-time updates when incidents are created/updated/deleted</li>
+                <li>Shows assigned emergency units for each incident</li>
+                <li>Color-coded by severity level</li>
+                <li>Incident location, type, and needs information</li>
+            </ul>
+        </div>
+    </div>
+    
     <div id="messages"></div>
     
     <script>
@@ -356,6 +394,7 @@
             const createAssignmentForm = document.getElementById('createAssignmentForm');
             const assignmentMonitor = document.getElementById('assignmentMonitor');
             const unitsMonitor = document.getElementById('unitsMonitor');
+            const incidentsMonitor = document.getElementById('incidentsMonitor');
             
             if (isConnected) {
                 statusDiv.textContent = 'Connected';
@@ -367,6 +406,7 @@
                 createAssignmentForm.style.display = 'block';
                 assignmentMonitor.style.display = 'block';
                 unitsMonitor.style.display = 'block';
+                incidentsMonitor.style.display = 'block';
             } else {
                 statusDiv.textContent = 'Disconnected';
                 statusDiv.className = 'status disconnected';
@@ -377,6 +417,7 @@
                 createAssignmentForm.style.display = 'none';
                 assignmentMonitor.style.display = 'none';
                 unitsMonitor.style.display = 'none';
+                incidentsMonitor.style.display = 'none';
             }
         }
 
@@ -456,11 +497,24 @@
                         const subscribeUnitsMonitorUpdateFrame = 'SUBSCRIBE\nid:sub-9\ndestination:/topic/units-monitor/update\n\n\0';
                         ws.send(subscribeUnitsMonitorUpdateFrame);
                         
+                        // Subscribe to incidents monitor
+                        log('Subscribing to /topic/incidents-monitor...');
+                        const subscribeIncidentsMonitorFrame = 'SUBSCRIBE\nid:sub-10\ndestination:/topic/incidents-monitor\n\n\0';
+                        ws.send(subscribeIncidentsMonitorFrame);
+                        
+                        // Subscribe to incidents monitor updates
+                        log('Subscribing to /topic/incidents-monitor/update...');
+                        const subscribeIncidentsMonitorUpdateFrame = 'SUBSCRIBE\nid:sub-11\ndestination:/topic/incidents-monitor/update\n\n\0';
+                        ws.send(subscribeIncidentsMonitorUpdateFrame);
+                        
                         // Request initial assignment list
                         setTimeout(() => requestAllAssignments(), 500);
                         
                         // Request initial units monitor status
                         setTimeout(() => refreshUnitsMonitor(), 1000);
+                        
+                        // Request initial incidents monitor status
+                        setTimeout(() => refreshIncidentsMonitor(), 1500);
                     } else if (event.data.includes('MESSAGE')) {
                         // Parse STOMP MESSAGE frame
                         const lines = event.data.split('\n');
@@ -478,6 +532,12 @@
                                 if (destination.includes('/topic/unit-location')) {
                                     log('Location update received: ' + JSON.stringify(parsed, null, 2), 'success');
                                     displayLocationUpdate(parsed);
+                                } else if (destination.includes('/topic/incidents-monitor/update')) {
+                                    log('Incident update received', 'success');
+                                    updateSingleIncidentDisplay(parsed);
+                                } else if (destination.includes('/topic/incidents-monitor')) {
+                                    log('All incidents status received: ' + parsed.length + ' incidents', 'success');
+                                    displayAllIncidents(parsed);
                                 } else if (destination.includes('/topic/units-monitor/update')) {
                                     log('Unit status update received', 'success');
                                     updateSingleUnitDisplay(parsed);
@@ -1125,6 +1185,163 @@
             document.getElementById('totalUnits').textContent = total;
             document.getElementById('availableUnits').textContent = available;
             document.getElementById('busyUnits').textContent = busy;
+        }
+
+        // Incidents Monitor Functions
+        let allIncidentsData = [];
+        let incidentFilter = 'all';
+        
+        function refreshIncidentsMonitor() {
+            if (!connected || !ws) {
+                log('Not connected', 'error');
+                return;
+            }
+            
+            log('Requesting all incidents status via WebSocket...');
+            const requestFrame = 'SEND\ndestination:/app/monitor.requestAllIncidents\n\n\0';
+            ws.send(requestFrame);
+        }
+        
+        function displayAllIncidents(incidents) {
+            allIncidentsData = incidents;
+            renderIncidentsList(incidents);
+            
+            const total = incidents.length;
+            const assigned = incidents.filter(inc => inc.hasAssignments).length;
+            const unassigned = total - assigned;
+            
+            updateIncidentsStats(total, assigned, unassigned);
+        }
+        
+        function renderIncidentsList(incidents) {
+            const listDiv = document.getElementById('incidentsMonitorList');
+            
+            if (!incidents || incidents.length === 0) {
+                listDiv.innerHTML = '<em style="color: #999;">No incidents found</em>';
+                return;
+            }
+            
+            listDiv.innerHTML = '';
+            incidents.forEach(incident => {
+                listDiv.appendChild(createIncidentElement(incident));
+            });
+        }
+        
+        function updateSingleIncidentDisplay(incident) {
+            const incidentDiv = document.getElementById('incident-' + incident.incidentId);
+            if (incidentDiv) {
+                incidentDiv.replaceWith(createIncidentElement(incident));
+            } else {
+                // Incident not in current view, refresh all
+                refreshIncidentsMonitor();
+            }
+            
+            // Update the stored data
+            const index = allIncidentsData.findIndex(inc => inc.incidentId === incident.incidentId);
+            if (index !== -1) {
+                allIncidentsData[index] = incident;
+            } else {
+                allIncidentsData.push(incident);
+            }
+        }
+        
+        function createIncidentElement(incident) {
+            const incidentDiv = document.createElement('div');
+            incidentDiv.id = 'incident-' + incident.incidentId;
+            
+            const hasAssignments = incident.hasAssignments;
+            const statusColor = hasAssignments ? '#28a745' : '#dc3545';
+            const statusText = hasAssignments ? '✓ ASSIGNED' : '⚠ UNASSIGNED';
+            const statusBg = hasAssignments ? '#d4edda' : '#f8d7da';
+            
+            // Severity color coding
+            const severityColors = {
+                'Low': '#17a2b8',
+                'Medium': '#ffc107',
+                'High': '#dc3545',
+                'Critical': '#721c24'
+            };
+            const severityColor = severityColors[incident.severityLevel] || '#6c757d';
+            
+            incidentDiv.style.cssText = `
+                padding: 12px;
+                margin: 8px 0;
+                background-color: white;
+                border-left: 4px solid ${severityColor};
+                border-radius: 4px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            `;
+            
+            let assignmentsInfo = '';
+            if (hasAssignments && incident.activeAssignments && incident.activeAssignments.length > 0) {
+                let assignmentsList = '';
+                incident.activeAssignments.forEach(assignment => {
+                    assignmentsList += `
+                        <div style="margin: 5px 0; padding: 5px; background-color: #fff; border-radius: 3px;">
+                            <strong>Unit #${assignment.unitId}</strong> (${assignment.unitType}) | 
+                            <strong>User:</strong> ${assignment.userName} (ID: ${assignment.userId}) | 
+                            <strong>Since:</strong> ${assignment.assignmentTime}
+                        </div>
+                    `;
+                });
+                assignmentsInfo = `
+                    <div style="margin-top: 8px; padding: 8px; background-color: #d4edda; border-left: 3px solid #28a745; border-radius: 3px;">
+                        <strong style="color: #155724;">🚒 Active Assignments (${incident.assignedUnitsCount}):</strong>
+                        ${assignmentsList}
+                    </div>
+                `;
+            } else if (hasAssignments && incident.totalAssignmentsCount > 0) {
+                // Has assignments but none are currently active
+                assignmentsInfo = `
+                    <div style="margin-top: 8px; padding: 8px; background-color: #fff3cd; border-left: 3px solid #ffc107; border-radius: 3px;">
+                        <strong style="color: #856404;">📋 Has ${incident.totalAssignmentsCount} assignment(s) but none currently active</strong>
+                    </div>
+                `;
+            }
+            
+            incidentDiv.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div style="flex: 1;">
+                        <strong style="font-size: 16px; color: #333;">🚨 Incident #${incident.incidentId}</strong>
+                        <span style="margin-left: 10px; padding: 3px 8px; background-color: ${statusBg}; color: ${statusColor}; font-size: 11px; font-weight: bold; border-radius: 3px;">
+                            ${statusText}
+                        </span>
+                        <span style="margin-left: 5px; padding: 3px 8px; background-color: ${severityColor}; color: white; font-size: 11px; font-weight: bold; border-radius: 3px;">
+                            ${incident.severityLevel}
+                        </span>
+                        <br>
+                        <span style="color: #666; font-size: 13px;">
+                            <strong>Type:</strong> ${incident.type} | 
+                            <strong>Needs:</strong> ${incident.needs} | 
+                            <strong>Location:</strong> ${incident.latitude.toFixed(4)}, ${incident.longtitude.toFixed(4)}<br>
+                            <strong>Reported:</strong> ${incident.reportedTime}
+                        </span>
+                        ${assignmentsInfo}
+                    </div>
+                </div>
+            `;
+            
+            return incidentDiv;
+        }
+        
+        function filterUnassignedIncidents() {
+            incidentFilter = 'unassigned';
+            const filtered = allIncidentsData.filter(inc => !inc.hasAssignments);
+            renderIncidentsList(filtered);
+            log('Showing unassigned incidents: ' + filtered.length);
+        }
+        
+        function filterAssignedIncidents() {
+            incidentFilter = 'assigned';
+            const filtered = allIncidentsData.filter(inc => inc.hasAssignments);
+            renderIncidentsList(filtered);
+            log('Showing assigned incidents: ' + filtered.length);
+        }
+        
+        function updateIncidentsStats(total, assigned, unassigned) {
+            document.getElementById('totalIncidents').textContent = total;
+            document.getElementById('assignedIncidents').textContent = assigned;
+            document.getElementById('unassignedIncidents').textContent = unassigned;
         }
 
         function disconnect() {
