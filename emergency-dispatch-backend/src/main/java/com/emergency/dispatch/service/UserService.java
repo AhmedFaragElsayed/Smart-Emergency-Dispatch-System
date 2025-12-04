@@ -27,6 +27,10 @@ public class UserService {
 
     public User createUser(User user) {
         try {
+            // Check if username already exists
+            if (userRepository.existsByUserName(user.getUserName())) {
+                throw new RuntimeException("Username already exists: " + user.getUserName());
+            }
             return userRepository.save(user);
         } catch (Exception e) {
             System.out.println("Error creating user: " + e.getMessage());
@@ -45,6 +49,11 @@ public class UserService {
     public User updateUser(Long userId, User userDetails) {
         return userRepository.findById(userId)
                 .map(user -> {
+                    // Check if username is being changed to one that already exists
+                    if (!user.getUserName().equals(userDetails.getUserName()) && 
+                        userRepository.existsByUserName(userDetails.getUserName())) {
+                        throw new RuntimeException("Username already exists: " + userDetails.getUserName());
+                    }
                     user.setUserName(userDetails.getUserName());
                     user.setFname(userDetails.getFname());
                     user.setLname(userDetails.getLname());

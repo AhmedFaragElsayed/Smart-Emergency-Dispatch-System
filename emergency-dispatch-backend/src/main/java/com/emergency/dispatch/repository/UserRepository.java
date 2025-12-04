@@ -10,4 +10,5 @@ import com.emergency.dispatch.model.User;
 @Repository
 public interface UserRepository extends JpaRepository<User, Long> {
     User findUserByUserName(String userName);
+    boolean existsByUserName(String userName);
 }

@@ -95,7 +95,7 @@ public class AssignmentController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<?> getAssignmentById(@PathVariable Long id) {
+    public ResponseEntity<?> getAssignmentById(@PathVariable("id") Long id) {
         try {
             return assignmentService.getAssignmentById(id)
                     .map(assignment -> ResponseEntity.ok(assignment))
@@ -132,7 +132,7 @@ public class AssignmentController {
 
     
     @GetMapping("/user/{userId}")
-    public ResponseEntity<?> getAssignmentsByUserId(@PathVariable Long userId) {
+    public ResponseEntity<?> getAssignmentsByUserId(@PathVariable("userId") Long userId) {
         try {
             List<Assignment> assignments = assignmentService.getAssignmentsByUserId(userId);
             return ResponseEntity.ok(assignments);
@@ -143,7 +143,7 @@ public class AssignmentController {
     }
 
     @GetMapping("/unit/{unitId}")
-    public ResponseEntity<?> getAssignmentsByUnitId(@PathVariable Long unitId) {
+    public ResponseEntity<?> getAssignmentsByUnitId(@PathVariable("unitId") Long unitId) {
         try {
             List<Assignment> assignments = assignmentService.getAssignmentsByUnitId(unitId);
             return ResponseEntity.ok(assignments);
@@ -182,7 +182,7 @@ public class AssignmentController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteAssignment(@PathVariable Long id) {
+    public ResponseEntity<?> deleteAssignment(@PathVariable("id") Long id) {
         try {
             assignmentService.deleteAssignment(id);
             return ResponseEntity.noContent().build();

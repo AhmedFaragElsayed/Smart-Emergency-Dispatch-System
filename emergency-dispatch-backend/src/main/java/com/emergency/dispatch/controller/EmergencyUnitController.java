@@ -38,25 +38,20 @@ public class EmergencyUnitController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<EmergencyUnit> getEmergencyUnitById(@PathVariable Long id) {
+    public ResponseEntity<EmergencyUnit> getEmergencyUnitById(@PathVariable("id") Long id) {
         return emergencyUnitService.getEmergencyUnitById(id)
                 .map(unit -> ResponseEntity.ok(unit))
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @GetMapping
-    public ResponseEntity<List<EmergencyUnit>> getAllEmergencyUnits(@RequestParam(required = false) String type) {
+    public ResponseEntity<List<EmergencyUnit>> getAllEmergencyUnits(@RequestParam(value = "type", required = false) String type) {
         try {
-            System.out.println("Getting emergency units with type filter: " + type);
             List<EmergencyUnit> units;
             if (type != null && !type.isEmpty()) {
-                System.out.println("Filtering by type: " + type);
                 units = emergencyUnitService.getEmergencyUnitsByType(type);
-                System.out.println("Found " + units.size() + " units of type " + type);
             } else {
-                System.out.println("Getting all units (no filter)");
                 units = emergencyUnitService.getAllEmergencyUnits();
-                System.out.println("Found " + units.size() + " total units");
             }
             return ResponseEntity.ok(units);
         } catch (Exception e) {
@@ -77,7 +72,7 @@ public class EmergencyUnitController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<EmergencyUnit> updateEmergencyUnit(@PathVariable Long id, @RequestBody EmergencyUnit unitDetails) {
+    public ResponseEntity<EmergencyUnit> updateEmergencyUnit(@PathVariable("id") Long id, @RequestBody EmergencyUnit unitDetails) {
         try {
             EmergencyUnit updatedUnit = emergencyUnitService.updateEmergencyUnit(id, unitDetails);
             return ResponseEntity.ok(updatedUnit);

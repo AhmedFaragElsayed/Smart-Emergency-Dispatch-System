@@ -56,19 +56,13 @@ public class EmergencyUnitService {
 
     public List<EmergencyUnit> getEmergencyUnitsByType(String type) {
         try {
-            System.out.println("Fetching all units from repository...");
             List<EmergencyUnit> allUnits = emergencyUnitRepository.findAll();
-            System.out.println("Total units in DB: " + allUnits.size());
             
             List<EmergencyUnit> filteredUnits = allUnits.stream()
-                    .filter(unit -> {
-                        boolean matches = type.equalsIgnoreCase(unit.getType());
-                        System.out.println("Unit " + unit.getUnitID() + " type: " + unit.getType() + ", matches: " + matches);
-                        return matches;
-                    })
+                    .filter(unit -> type.equalsIgnoreCase(unit.getType()))
                     .toList();
             
-            System.out.println("Filtered units count: " + filteredUnits.size());
+            System.out.println("Found " + filteredUnits.size() + " units of type '" + type + "'");
             return filteredUnits;
         } catch (Exception e) {
             System.err.println("Error in getEmergencyUnitsByType: " + e.getMessage());

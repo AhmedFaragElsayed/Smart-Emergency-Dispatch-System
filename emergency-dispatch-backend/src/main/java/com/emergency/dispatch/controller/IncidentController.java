@@ -74,7 +74,7 @@ public class IncidentController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Incident> getIncidentById(@PathVariable Long id) {
+    public ResponseEntity<Incident> getIncidentById(@PathVariable("id") Long id) {
         return incidentService.getIncidentById(id)
                 .map(incident -> ResponseEntity.ok(incident))
                 .orElse(ResponseEntity.notFound().build());
@@ -101,7 +101,7 @@ public class IncidentController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Incident> updateIncident(@PathVariable Long id, @RequestBody Map<String, Object> incidentData) {
+    public ResponseEntity<Incident> updateIncident(@PathVariable("id") Long id, @RequestBody Map<String, Object> incidentData) {
         try {
             System.out.println("Updating incident " + id + " with data: " + incidentData);
             
@@ -156,7 +156,7 @@ public class IncidentController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteIncident(@PathVariable Long id) {
+    public ResponseEntity<Void> deleteIncident(@PathVariable("id") Long id) {
         try {
             incidentService.deleteIncident(id);
             return ResponseEntity.noContent().build();

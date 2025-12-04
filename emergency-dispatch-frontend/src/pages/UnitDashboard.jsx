@@ -12,7 +12,7 @@ const UnitDashboard = () => {
     capacity: 1,
     latitude: 0,
     longtitude: 0,
-    status: true
+    status: false
   });
   const [isFormVisible, setIsFormVisible] = useState(false);
 
@@ -74,7 +74,7 @@ const UnitDashboard = () => {
       capacity: 1,
       latitude: 0,
       longtitude: 0,
-      status: true
+      status: false
     });
     setEditingUnit(null);
     setIsFormVisible(false);
