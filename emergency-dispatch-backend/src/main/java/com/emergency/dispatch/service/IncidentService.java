@@ -9,9 +9,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
+import com.emergency.dispatch.model.Assignment;
 import com.emergency.dispatch.model.Incident;
 import com.emergency.dispatch.model.Notification;
 import com.emergency.dispatch.model.User;
+import com.emergency.dispatch.repository.AssignmentRepository;
 import com.emergency.dispatch.repository.IncidentRepository;
 import com.emergency.dispatch.repository.NotificationRepository;
 import com.emergency.dispatch.repository.UserRepository;
@@ -33,6 +35,12 @@ public class IncidentService {
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private AssignmentRepository assignmentRepository;
+
+    @Autowired
+    private AssignmentService assignmentService;
 
     public Incident createIncident(Incident incident) {
         try {
@@ -98,20 +106,48 @@ public class IncidentService {
     }
 
     public Incident updateIncident(Long incidentId, Incident incidentDetails) {
-        Incident updatedIncident = incidentRepository.findById(incidentId)
-                .map(incident -> {
-                    incident.setType(incidentDetails.getType());
-                    incident.setLatitude(incidentDetails.getLatitude());
-                    incident.setLongtitude(incidentDetails.getLongtitude());
-                    incident.setNeeds(incidentDetails.getNeeds());
-                    incident.setSeverityLevel(incidentDetails.getSeverityLevel());
-                    incident.setReportedTime(incidentDetails.getReportedTime());
-                    if (incidentDetails.getStatus() != null) {
-                        incident.setStatus(incidentDetails.getStatus());
-                    }
-                    return incidentRepository.save(incident);
-                })
+        Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new RuntimeException("Incident not found with id: " + incidentId));
+        
+        // Check if status is changing to "resolved"
+        String oldStatus = incident.getStatus();
+        String newStatus = incidentDetails.getStatus();
+        boolean statusChangedToResolved = newStatus != null && 
+                                         "resolved".equalsIgnoreCase(newStatus) && 
+                                         !newStatus.equalsIgnoreCase(oldStatus);
+        
+        // Update incident fields
+        incident.setType(incidentDetails.getType());
+        incident.setLatitude(incidentDetails.getLatitude());
+        incident.setLongtitude(incidentDetails.getLongtitude());
+        incident.setNeeds(incidentDetails.getNeeds());
+        incident.setSeverityLevel(incidentDetails.getSeverityLevel());
+        incident.setReportedTime(incidentDetails.getReportedTime());
+        if (newStatus != null) {
+            incident.setStatus(newStatus);
+        }
+        
+        Incident updatedIncident = incidentRepository.save(incident);
+        
+        // If status changed to resolved, deactivate all active assignments for this incident
+        if (statusChangedToResolved) {
+            List<Assignment> activeAssignments = assignmentRepository
+                    .findByIncident_IncidentIdAndIsActiveTrue(incidentId);
+            
+            System.out.println("Incident " + incidentId + " resolved. Deactivating " + 
+                             activeAssignments.size() + " active assignments.");
+            
+            for (Assignment assignment : activeAssignments) {
+                try {
+                    assignmentService.deactivateAssignment(assignment.getAssignmentId());
+                    System.out.println("Deactivated assignment " + assignment.getAssignmentId() + 
+                                     " for unit " + assignment.getEmergencyUnit().getUnitID());
+                } catch (Exception e) {
+                    System.err.println("Error deactivating assignment " + 
+                                     assignment.getAssignmentId() + ": " + e.getMessage());
+                }
+            }
+        }
         
         // Broadcast the update to all monitoring clients
         monitorService.broadcastIncidentUpdate(incidentId);

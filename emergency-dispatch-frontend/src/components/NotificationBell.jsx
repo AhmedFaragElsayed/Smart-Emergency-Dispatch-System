@@ -17,7 +17,16 @@ const NotificationBell = () => {
 
     console.log('Setting up notifications for user:', user);
 
-    // Subscribe to notifications
+    // Load existing notifications from the service
+    const existingNotifications = websocketService.getNotifications()
+      .filter(n => n.user && (n.user.userID === user.id || n.user.userID === parseInt(user.id)));
+    
+    setNotifications(existingNotifications);
+    
+    // Get unread count from service (persistent across page changes)
+    setUnreadCount(websocketService.getUnreadCount(user.id));
+
+    // Subscribe to new notifications
     const handleNotification = (notification) => {
       console.log('Received notification:', notification);
       console.log('Current user ID:', user.id);
@@ -27,7 +36,9 @@ const NotificationBell = () => {
       if (notification.user && (notification.user.userID === user.id || notification.user.userID === parseInt(user.id))) {
         console.log('Adding notification to list');
         setNotifications(prev => [notification, ...prev]);
-        setUnreadCount(prev => prev + 1);
+        
+        // Update unread count from service
+        setUnreadCount(websocketService.getUnreadCount(user.id));
       } else {
         console.log('Notification not for this user, ignoring');
       }
@@ -41,14 +52,36 @@ const NotificationBell = () => {
   }, [user]);
 
   const handleBellClick = () => {
+    const wasOpen = showDropdown;
     setShowDropdown(!showDropdown);
-    if (!showDropdown) {
-      // Mark all as read when opening
+    
+    // Mark all as read when opening dropdown
+    if (!wasOpen) {
+      const notificationIds = notifications
+        .filter(n => n.notificationId)
+        .map(n => n.notificationId);
+      
+      websocketService.markAllAsRead(notificationIds);
       setUnreadCount(0);
     }
   };
 
   const clearNotifications = () => {
+    // Clear notifications from service (for all users)
+    const userNotifications = websocketService.getNotifications()
+      .filter(n => n.user && (n.user.userID === user.id || n.user.userID === parseInt(user.id)));
+    
+    // Remove user's notifications from the service
+    userNotifications.forEach(() => {
+      const allNotifications = websocketService.getNotifications();
+      const index = allNotifications.findIndex(n => 
+        n.user && (n.user.userID === user.id || n.user.userID === parseInt(user.id))
+      );
+      if (index !== -1) {
+        websocketService.removeNotification(index);
+      }
+    });
+    
     setNotifications([]);
     setUnreadCount(0);
   };

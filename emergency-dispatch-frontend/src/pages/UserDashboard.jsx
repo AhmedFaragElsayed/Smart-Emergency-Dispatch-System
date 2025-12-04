@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiService from '../services/apiService';
+import NotificationBell from '../components/NotificationBell';
 import '../styles/UserDashboard.css';
 
 const UserDashboard = () => {
@@ -93,12 +94,15 @@ const UserDashboard = () => {
       <div className="dashboard-header">
         <button className="back-button" onClick={() => navigate('/')}>← Back to Home</button>
         <h1>👨‍💼 User Management</h1>
-        <button 
-          className="btn-primary" 
-          onClick={() => setIsFormVisible(!isFormVisible)}
-        >
-          {isFormVisible ? 'Cancel' : 'Add New User'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <NotificationBell />
+          <button 
+            className="btn-primary" 
+            onClick={() => setIsFormVisible(!isFormVisible)}
+          >
+            {isFormVisible ? 'Cancel' : 'Add New User'}
+          </button>
+        </div>
       </div>
 
       {isFormVisible && (

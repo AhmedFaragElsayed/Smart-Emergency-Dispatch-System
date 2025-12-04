@@ -23,22 +23,23 @@ const AdminPortal = () => {
   const [filterSeverityLevel, setFilterSeverityLevel] = useState('ALL');
 
   useEffect(() => {
-
     loadIncidentsViaAPI();
-
-    connectWebSocket();
+    setupWebSocketListeners();
 
     return () => {
-      websocketService.disconnect();
+      // Clean up listeners but don't disconnect (managed by App.jsx)
+      websocketService.off('incidentUpdate');
+      websocketService.off('unitUpdate');
+      websocketService.off('assignmentUpdate');
+      websocketService.off('notification');
     };
   }, []);
 
-  const connectWebSocket = async () => {
-    try {
-      await websocketService.connect('http://localhost:9696/ws');
-      setIsConnected(true);
-      
-      websocketService.on('incidentUpdate', (incident) => {
+  const setupWebSocketListeners = () => {
+    // WebSocket is already connected via App.jsx
+    setIsConnected(websocketService.isConnected());
+    
+    websocketService.on('incidentUpdate', (incident) => {
         console.log('Received incident update via WebSocket:', incident);
         // Update incidents state directly for instant updates
         setIncidents((prevIncidents) => {
@@ -93,13 +94,7 @@ const AdminPortal = () => {
         setIsConnected(false);
         console.log('WebSocket disconnected');
       });
-
-    } catch (error) {
-      console.error('Failed to connect to WebSocket:', error);
-      setIsConnected(false);
-    }
   };
-
   const loadIncidentsViaAPI = async () => {
     try {
       setIsConnected(true);

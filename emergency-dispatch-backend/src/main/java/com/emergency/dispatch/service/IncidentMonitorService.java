@@ -49,6 +49,7 @@ public class IncidentMonitorService {
         incidentData.put("needs", incident.getNeeds());
         incidentData.put("severityLevel", incident.getSeverityLevel());
         incidentData.put("reportedTime", incident.getReportedTime());
+        incidentData.put("status", incident.getStatus());
 
         // Get ALL assignments for this incident first
         List<Assignment> allAssignments = assignmentRepository.findByIncident_IncidentId(incident.getIncidentId());

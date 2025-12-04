@@ -8,10 +8,25 @@ class WebSocketService {
     this.connected = false;
     this.listeners = new Map();
     this.subscriptions = new Map();
+    this.connecting = false; // Track if connection is in progress
+    this.notifications = []; // Store notifications persistently
+    this.readNotificationIds = new Set(); // Track read notifications
   }
 
   connect(url = 'http://localhost:9696/ws') {
-    return new Promise((resolve, reject) => {
+    // If already connected or connecting, return existing promise
+    if (this.connected) {
+      console.log('WebSocket already connected');
+      return Promise.resolve();
+    }
+    
+    if (this.connecting) {
+      console.log('WebSocket connection already in progress');
+      return this.connectPromise;
+    }
+
+    this.connecting = true;
+    this.connectPromise = new Promise((resolve, reject) => {
       try {
         // Create a SockJS connection
         const socket = new SockJS(url);
@@ -30,6 +45,7 @@ class WebSocketService {
         this.stompClient.onConnect = () => {
           console.log('WebSocket connected via STOMP');
           this.connected = true;
+          this.connecting = false;
           this.notifyListeners('connected', { status: 'connected' });
           
           // Subscribe to topics
@@ -39,6 +55,7 @@ class WebSocketService {
 
         this.stompClient.onStompError = (frame) => {
           console.error('STOMP error:', frame);
+          this.connecting = false;
           this.notifyListeners('error', { error: frame });
           reject(frame);
         };
@@ -46,15 +63,19 @@ class WebSocketService {
         this.stompClient.onWebSocketClose = () => {
           console.log('WebSocket disconnected');
           this.connected = false;
+          this.connecting = false;
           this.notifyListeners('disconnected', { status: 'disconnected' });
         };
 
         this.stompClient.activate();
       } catch (error) {
         console.error('Error connecting to WebSocket:', error);
+        this.connecting = false;
         reject(error);
       }
     });
+    
+    return this.connectPromise;
   }
 
   subscribeToTopics() {
@@ -83,6 +104,11 @@ class WebSocketService {
     this.subscribe('/topic/notifications', (message) => {
       const notification = JSON.parse(message.body);
       console.log('Received notification:', notification);
+      
+      // Store notification persistently
+      this.notifications.unshift(notification);
+      
+      // Notify all listeners
       this.notifyListeners('notification', notification);
     });
 
@@ -161,12 +187,53 @@ class WebSocketService {
       this.stompClient.deactivate();
       this.stompClient = null;
       this.connected = false;
+      this.connecting = false;
     }
   }
 
   // Get connection status
   isConnected() {
     return this.connected;
+  }
+
+  // Get all stored notifications
+  getNotifications() {
+    return this.notifications;
+  }
+
+  // Clear all notifications
+  clearNotifications() {
+    this.notifications = [];
+  }
+
+  // Remove a specific notification
+  removeNotification(index) {
+    this.notifications.splice(index, 1);
+  }
+
+  // Mark notification as read
+  markAsRead(notificationId) {
+    this.readNotificationIds.add(notificationId);
+  }
+
+  // Mark all notifications as read
+  markAllAsRead(notificationIds) {
+    notificationIds.forEach(id => this.readNotificationIds.add(id));
+  }
+
+  // Check if notification is read
+  isNotificationRead(notificationId) {
+    return this.readNotificationIds.has(notificationId);
+  }
+
+  // Get unread count for a user
+  getUnreadCount(userId) {
+    return this.notifications.filter(n => 
+      n.user && 
+      (n.user.userID === userId || n.user.userID === parseInt(userId)) &&
+      n.notificationId &&
+      !this.readNotificationIds.has(n.notificationId)
+    ).length;
   }
 }
 

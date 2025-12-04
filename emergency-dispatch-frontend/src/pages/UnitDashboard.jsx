@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiService from '../services/apiService';
+import websocketService from '../services/websocketService';
+import NotificationBell from '../components/NotificationBell';
 import '../styles/UnitDashboard.css';
 
 const UnitDashboard = () => {
@@ -16,7 +18,34 @@ const UnitDashboard = () => {
   });
   const [isFormVisible, setIsFormVisible] = useState(false);
 
-  useEffect(() => { loadUnits(); }, []);
+  useEffect(() => { 
+    loadUnits();
+    
+    // WebSocket is already connected via App.jsx
+    // Subscribe to unit updates
+    const handleUnitUpdate = (updatedUnit) => {
+      console.log('Received unit update:', updatedUnit);
+      setUnits(prevUnits => {
+        const existingIndex = prevUnits.findIndex(u => u.unitID === updatedUnit.unitID);
+        if (existingIndex >= 0) {
+          // Update existing unit
+          const newUnits = [...prevUnits];
+          newUnits[existingIndex] = updatedUnit;
+          return newUnits;
+        } else {
+          // Add new unit
+          return [...prevUnits, updatedUnit];
+        }
+      });
+    };
+
+    websocketService.on('unitUpdate', handleUnitUpdate);
+
+    // Cleanup on unmount
+    return () => {
+      websocketService.off('unitUpdate', handleUnitUpdate);
+    };
+  }, []);
 
   const loadUnits = async () => {
     try {
@@ -87,12 +116,15 @@ const UnitDashboard = () => {
       <div className="dashboard-header">
         <button className="back-button" onClick={() => navigate('/')}>← Back to Home</button>
         <h1>🚑 Emergency Unit Management</h1>
-        <button 
-          className="btn-primary" 
-          onClick={() => setIsFormVisible(!isFormVisible)}
-        >
-          {isFormVisible ? 'Cancel' : 'Add New Unit'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <NotificationBell />
+          <button 
+            className="btn-primary" 
+            onClick={() => setIsFormVisible(!isFormVisible)}
+          >
+            {isFormVisible ? 'Cancel' : 'Add New Unit'}
+          </button>
+        </div>
       </div>
 
       {isFormVisible && (

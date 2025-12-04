@@ -34,6 +34,9 @@ public interface AssignmentRepository extends JpaRepository<Assignment, Long> {
     // Find all assignments by incident ID
     List<Assignment> findByIncident_IncidentId(Long incidentId);
     
+    // Find active assignments by incident ID
+    List<Assignment> findByIncident_IncidentIdAndIsActiveTrue(Long incidentId);
+    
     // Find all assignments by user ID
     List<Assignment> findByUser_UserID(Long userId);
     
