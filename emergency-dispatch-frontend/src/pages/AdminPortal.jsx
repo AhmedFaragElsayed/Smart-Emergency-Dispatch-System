@@ -18,20 +18,36 @@ const AdminPortal = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showUnitsModal, setShowUnitsModal] = useState(false);
+  const [showUserManagementModal, setShowUserManagementModal] = useState(false);
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [filterType, setFilterType] = useState('ALL');
   const [filterSeverityLevel, setFilterSeverityLevel] = useState('ALL');
+  
+  // User Management States
+  const [users, setUsers] = useState([]);
+  const [newUser, setNewUser] = useState({
+    username: '',
+    email: '',
+    password: '',
+    role: 'ADMIN'
+  });
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [activeTab, setActiveTab] = useState('incidents'); // 'incidents' or 'users'
 
   useEffect(() => {
-
     loadIncidentsViaAPI();
-
     connectWebSocket();
 
     return () => {
       websocketService.disconnect();
     };
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'users' && showUserManagementModal) {
+      loadUsers();
+    }
+  }, [activeTab, showUserManagementModal]);
 
   const connectWebSocket = async () => {
     try {
@@ -40,18 +56,15 @@ const AdminPortal = () => {
       
       websocketService.on('incidentUpdate', (incident) => {
         console.log('Received incident update via WebSocket:', incident);
-        // Update incidents state directly for instant updates
         setIncidents((prevIncidents) => {
           const existingIndex = prevIncidents.findIndex(
             (i) => i.incidentId === incident.incidentId
           );
           if (existingIndex >= 0) {
-            // Update existing incident
             const updated = [...prevIncidents];
             updated[existingIndex] = incident;
             return updated;
           } else {
-            // Add new incident at the beginning
             return [incident, ...prevIncidents];
           }
         });
@@ -59,16 +72,13 @@ const AdminPortal = () => {
 
       websocketService.on('unitUpdate', (unit) => {
         console.log('Received unit update via WebSocket:', unit);
-        // Update the emergency units list if it's being displayed
         setEmergencyUnits((prevUnits) => {
           const existingIndex = prevUnits.findIndex((u) => u.unitID === unit.unitID);
           if (existingIndex >= 0) {
-            // Update existing unit
             const updated = [...prevUnits];
             updated[existingIndex] = unit;
             return updated;
           } else {
-            // Add new unit if it matches the current filter
             return [...prevUnits, unit];
           }
         });
@@ -76,7 +86,6 @@ const AdminPortal = () => {
 
       websocketService.on('assignmentUpdate', (assignment) => {
         console.log('Received assignment update via WebSocket:', assignment);
-        // Refresh incidents list when assignment is created/updated
         loadIncidentsViaAPI();
       });
 
@@ -114,6 +123,57 @@ const AdminPortal = () => {
     }
   };
 
+  // User Management Functions
+  const loadUsers = async () => {
+    try {
+      setLoadingUsers(true);
+      const data = await apiService.getAllUsers();
+      setUsers(data);
+    } catch (error) {
+      console.error('Error loading users:', error);
+      alert('Failed to load users: ' + error.message);
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  const handleCreateUser = async () => {
+    if (!newUser.username || !newUser.email || !newUser.password) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      await apiService.createUser(newUser);
+      alert('User created successfully!');
+      setNewUser({
+        username: '',
+        email: '',
+        password: '',
+        role: 'ADMIN'
+      });
+      loadUsers(); // Refresh user list
+    } catch (error) {
+      console.error('Error creating user:', error);
+      alert('Failed to create user: ' + error.message);
+    }
+  };
+
+  const handleDeleteUser = async (userId) => {
+    if (!window.confirm('Are you sure you want to delete this user?')) {
+      return;
+    }
+
+    try {
+      await apiService.deleteUser(userId);
+      alert('User deleted successfully!');
+      loadUsers(); // Refresh user list
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      alert('Failed to delete user: ' + error.message);
+    }
+  };
+
   const getUnitTypeFromIncidentType = (incidentType) => {
     const typeMap = {
       'MEDICAL': 'Ambulance',
@@ -148,7 +208,6 @@ const AdminPortal = () => {
   };
 
   const handleToggleUnitSelection = (unit) => {
-    // Don't allow selecting unavailable units
     if (unit.status === true || unit.status === 'BUSY' || unit.status === 'OFFLINE') {
       return;
     }
@@ -172,7 +231,6 @@ const AdminPortal = () => {
     console.log('Assigning units:', selectedUnits, 'to incident:', selectedIncident);
 
     try {
-      // Assign all selected units using the current logged-in user's ID
       const assignmentPromises = selectedUnits.map((unitId) =>
         apiService.assignUnit(unitId, selectedIncident.incidentId || selectedIncident.id, user.id)
       );
@@ -184,7 +242,6 @@ const AdminPortal = () => {
       setSelectedUnits([]);
       setEmergencyUnits([]);
       
-      // Refresh incidents
       loadIncidentsViaAPI();
       
       alert(`${selectedUnits.length} unit(s) dispatched successfully! Incident status updated to "dispatched".`);
@@ -203,7 +260,6 @@ const AdminPortal = () => {
       setSelectedIncident(null);
       setSelectedUnits([]);
       setEmergencyUnits([]);
-      // Refresh incidents
       loadIncidentsViaAPI();
       alert(`Unit ${unit.name || unit.unitID || unit.id} assigned to incident successfully!`);
     } catch (error) {
@@ -219,6 +275,11 @@ const AdminPortal = () => {
     setEmergencyUnits([]);
   };
 
+  const closeUserManagementModal = () => {
+    setShowUserManagementModal(false);
+    setActiveTab('incidents');
+  };
+
   const getNeedsLabel = (type) => {
     const typeStr = type?.toLowerCase() || '';
     if (typeStr.includes('fire')) return 'Damaged Buildings:';
@@ -228,7 +289,6 @@ const AdminPortal = () => {
   };
 
   const filteredIncidents = incidents.filter((incident) => {
-    // Treat null/undefined status as "PENDING"
     const incidentStatus = incident.status || 'PENDING';
     const statusMatch = filterStatus === 'ALL' || 
       incidentStatus.toUpperCase() === filterStatus.toUpperCase();
@@ -250,72 +310,180 @@ const AdminPortal = () => {
             <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
           </div>
           <button 
-            className="back-button" 
+            className="manage-users-btn" 
+            onClick={() => setShowUserManagementModal(true)}
+          >
+            👥 Manage Users
+          </button>
+          <button 
+            className="logout-btn" 
             onClick={() => { logout(); navigate('/signin'); }}
-            style={{ background: '#e74c3c' }}
           >
             Logout
           </button>
         </div>
       </header>
 
-      <div className="filters-section">
-        <div className="filter-group">
-          <label>Status:</label>
-          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-            <option value="ALL">All</option>
-            <option value="PENDING">Pending</option>
-            <option value="DISPATCHED">Dispatched</option>
-            <option value="IN_PROGRESS">In Progress</option>
-            <option value="COMPLETED">Resolved</option>
-          </select>
-        </div>
-        <div className="filter-group">
-          <label>Type:</label>
-          <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-            <option value="ALL">All</option>
-            <option value="MEDICAL">Medical</option>
-            <option value="POLICE">Police</option>
-            <option value="FIRE">Fire</option>
-          </select>
-        </div>
-        <div className="filter-group">  
-          <label>Severity Level </label>
-          <select value={filterSeverityLevel} onChange={(e) => setFilterSeverityLevel(e.target.value)}>
-          <option value="ALL">All</option>
-          <option value="Low">Low</option>
-          <option value="Medium">Medium</option>
-          <option value="High">High</option>
-          <option value="Critical">Critical</option>
-        </select>          
-        </div>
-        <div className="incidents-count">
-          <strong>{filteredIncidents.length}</strong> incident(s)
-        </div>
+      <div className="tabs-section">
+        <button 
+          className={`tab-btn ${activeTab === 'incidents' ? 'active' : ''}`}
+          onClick={() => setActiveTab('incidents')}
+        >
+          🚨 Incidents
+        </button>
+        <button 
+          className={`tab-btn ${activeTab === 'users' ? 'active' : ''}`}
+          onClick={() => setActiveTab('users')}
+        >
+          👥 User Management
+        </button>
       </div>
 
-      <main className="admin-content">
-        {loading ? (
-          <div className="loading">
-            <div className="spinner"></div>
-            <p>Loading incidents...</p>
+      {activeTab === 'incidents' ? (
+        <>
+          <div className="filters-section">
+            <div className="filter-group">
+              <label>Status:</label>
+              <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+                <option value="ALL">All</option>
+                <option value="PENDING">Pending</option>
+                <option value="DISPATCHED">Dispatched</option>
+                <option value="IN_PROGRESS">In Progress</option>
+                <option value="COMPLETED">Resolved</option>
+              </select>
+            </div>
+            <div className="filter-group">
+              <label>Type:</label>
+              <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+                <option value="ALL">All</option>
+                <option value="MEDICAL">Medical</option>
+                <option value="POLICE">Police</option>
+                <option value="FIRE">Fire</option>
+              </select>
+            </div>
+            <div className="filter-group">  
+              <label>Severity Level</label>
+              <select value={filterSeverityLevel} onChange={(e) => setFilterSeverityLevel(e.target.value)}>
+                <option value="ALL">All</option>
+                <option value="Low">Low</option>
+                <option value="Medium">Medium</option>
+                <option value="High">High</option>
+                <option value="Critical">Critical</option>
+              </select>          
+            </div>
+            <div className="incidents-count">
+              <strong>{filteredIncidents.length}</strong> incident(s)
+            </div>
           </div>
-        ) : filteredIncidents.length === 0 ? (
-          <div className="no-incidents">
-            <p>No incidents found</p>
-          </div>
-        ) : (
-          <div className="incidents-grid">
-            {filteredIncidents.map((incident) => (
-              <IncidentCard
-                key={incident.incidentId || incident.id}
-                incident={incident}
-                onDispatch={handleDispatch}
+
+          <main className="admin-content">
+            {loading ? (
+              <div className="loading">
+                <div className="spinner"></div>
+                <p>Loading incidents...</p>
+              </div>
+            ) : filteredIncidents.length === 0 ? (
+              <div className="no-incidents">
+                <p>No incidents found</p>
+              </div>
+            ) : (
+              <div className="incidents-grid">
+                {filteredIncidents.map((incident) => (
+                  <IncidentCard
+                    key={incident.incidentId || incident.id}
+                    incident={incident}
+                    onDispatch={handleDispatch}
+                  />
+                ))}
+              </div>
+            )}
+          </main>
+        </>
+      ) : (
+        <div className="user-management-section">
+          <div className="create-user-form">
+            <h3>Create New User</h3>
+            <div className="form-group">
+              <input
+                type="text"
+                placeholder="Username"
+                value={newUser.username}
+                onChange={(e) => setNewUser({...newUser, username: e.target.value})}
               />
-            ))}
+              <input
+                type="email"
+                placeholder="Email"
+                value={newUser.email}
+                onChange={(e) => setNewUser({...newUser, email: e.target.value})}
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={newUser.password}
+                onChange={(e) => setNewUser({...newUser, password: e.target.value})}
+              />
+              <select
+                value={newUser.role}
+                onChange={(e) => setNewUser({...newUser, role: e.target.value})}
+              >
+                <option value="ADMIN">Admin</option>
+                <option value="DISPATCHER">Dispatcher</option>
+                <option value="FIELD_AGENT">Field Agent</option>
+                <option value="USER">User</option>
+              </select>
+              <button onClick={handleCreateUser} className="create-user-btn">
+                Create User
+              </button>
+            </div>
           </div>
-        )}
-      </main>
+
+          <div className="users-list">
+            <h3>Existing Users</h3>
+            {loadingUsers ? (
+              <div className="loading">
+                <div className="spinner"></div>
+                <p>Loading users...</p>
+              </div>
+            ) : users.length === 0 ? (
+              <p>No users found</p>
+            ) : (
+              <table className="users-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((user) => (
+                    <tr key={user.id}>
+                      <td>{user.id}</td>
+                      <td>{user.username}</td>
+                      <td>{user.email}</td>
+                      <td>
+                        <span className={`role-badge ${user.role?.toLowerCase()}`}>
+                          {user.role}
+                        </span>
+                      </td>
+                      <td>
+                        <button 
+                          className="delete-user-btn"
+                          onClick={() => handleDeleteUser(user.id)}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Emergency Units Modal */}
       {showUnitsModal && (
@@ -376,6 +544,103 @@ const AdminPortal = () => {
                       </button>
                     </div>
                   </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Management Modal */}
+      {showUserManagementModal && (
+        <div className="modal-overlay" onClick={closeUserManagementModal}>
+          <div className="modal-content user-management-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>👥 User Management</h2>
+              <button className="close-button" onClick={closeUserManagementModal}>
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="create-user-form">
+                <h3>Create New User</h3>
+                <div className="form-group">
+                  <input
+                    type="text"
+                    placeholder="Username"
+                    value={newUser.username}
+                    onChange={(e) => setNewUser({...newUser, username: e.target.value})}
+                  />
+                  <input
+                    type="email"
+                    placeholder="Email"
+                    value={newUser.email}
+                    onChange={(e) => setNewUser({...newUser, email: e.target.value})}
+                  />
+                  <input
+                    type="password"
+                    placeholder="Password"
+                    value={newUser.password}
+                    onChange={(e) => setNewUser({...newUser, password: e.target.value})}
+                  />
+                  <select
+                    value={newUser.role}
+                    onChange={(e) => setNewUser({...newUser, role: e.target.value})}
+                  >
+                    <option value="ADMIN">Admin</option>
+                    <option value="DISPATCHER">Dispatcher</option>
+                    <option value="FIELD_AGENT">Field Agent</option>
+                    <option value="USER">User</option>
+                  </select>
+                  <button onClick={handleCreateUser} className="create-user-btn">
+                    Create User
+                  </button>
+                </div>
+              </div>
+
+              <div className="users-list">
+                <h3>Existing Users</h3>
+                {loadingUsers ? (
+                  <div className="loading">
+                    <div className="spinner"></div>
+                    <p>Loading users...</p>
+                  </div>
+                ) : users.length === 0 ? (
+                  <p>No users found</p>
+                ) : (
+                  <table className="users-table">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Username</th>
+                        <th>Email</th>
+                        <th>Role</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users.map((user) => (
+                        <tr key={user.id}>
+                          <td>{user.id}</td>
+                          <td>{user.username}</td>
+                          <td>{user.email}</td>
+                          <td>
+                            <span className={`role-badge ${user.role?.toLowerCase()}`}>
+                              {user.role}
+                            </span>
+                          </td>
+                          <td>
+                            <button 
+                              className="delete-user-btn"
+                              onClick={() => handleDeleteUser(user.id)}
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 )}
               </div>
             </div>
