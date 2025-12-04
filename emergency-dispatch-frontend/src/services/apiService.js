@@ -16,11 +16,18 @@ class ApiService {
 
   async fetchEmergencyUnits(incidentType) {
     try {
-      const response = await fetch(`${API_BASE_URL}/emergency-units?type=${incidentType}`);
+      const url = `${API_BASE_URL}/emergency-units?type=${incidentType}`;
+      console.log('Fetching emergency units from:', url);
+      const response = await fetch(url);
+      console.log('Response status:', response.status);
       if (!response.ok) {
-        throw new Error('Failed to fetch emergency units');
+        const errorText = await response.text().catch(() => '');
+        console.error('Error response:', errorText);
+        throw new Error(`Failed to fetch emergency units (Status: ${response.status})`);
       }
-      return await response.json();
+      const data = await response.json();
+      console.log('Fetched units:', data);
+      return data;
     } catch (error) {
       console.error('Error fetching emergency units:', error);
       throw error;
@@ -45,14 +52,16 @@ class ApiService {
     }
   }
 
-  async assignUnit(unitId, incidentId, userId = 1) {
+  async assignUnit(unitId, incidentId, userId) {
     try {
+      // Use the provided userId from the logged-in user
+      const userIdToUse = userId || 2; // Fallback to 2 if not provided
       const response = await fetch(`${API_BASE_URL}/assignments`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ unitId, incidentId, userId }),
+        body: JSON.stringify({ unitId, incidentId, userId: userIdToUse }),
       });
       
       if (!response.ok) {

@@ -1,16 +1,25 @@
 import logo from '../assets/logo.png';
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import { validateSignin } from '../utils/validateSignin';
 import { signinUser } from '../api/SigninAPI';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 function SigninPage(){
 
     const navigate = useNavigate();
+    const { login, user } = useAuth();
     const [password, setPassword] = useState("");
     const [userName, setUserName] = useState("");
     const [errors, setErrors] = useState({});
     const [error, setError] = useState("");
+
+    useEffect(() => {
+      // Redirect if already logged in
+      if (user) {
+        navigate('/');
+      }
+    }, [user, navigate]);
 
     const handleSubmit = async (e) =>{
       e.preventDefault();
@@ -27,8 +36,12 @@ function SigninPage(){
 
       try{
         const data = await signinUser(userName, password);
-        console.log("Signin successful:", data.id);
-        navigate('/map'); // Redirect to map page
+        console.log("Signin successful:", data);
+        
+        // Store user info in auth context
+        login(data.id, { userName });
+        
+        navigate('/'); // Redirect to dashboard
         
       }catch(err){
         setError(err.message || "Signin failed");

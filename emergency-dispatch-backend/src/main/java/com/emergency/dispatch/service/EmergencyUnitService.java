@@ -54,6 +54,29 @@ public class EmergencyUnitService {
         return emergencyUnitRepository.findAll();
     }
 
+    public List<EmergencyUnit> getEmergencyUnitsByType(String type) {
+        try {
+            System.out.println("Fetching all units from repository...");
+            List<EmergencyUnit> allUnits = emergencyUnitRepository.findAll();
+            System.out.println("Total units in DB: " + allUnits.size());
+            
+            List<EmergencyUnit> filteredUnits = allUnits.stream()
+                    .filter(unit -> {
+                        boolean matches = type.equalsIgnoreCase(unit.getType());
+                        System.out.println("Unit " + unit.getUnitID() + " type: " + unit.getType() + ", matches: " + matches);
+                        return matches;
+                    })
+                    .toList();
+            
+            System.out.println("Filtered units count: " + filteredUnits.size());
+            return filteredUnits;
+        } catch (Exception e) {
+            System.err.println("Error in getEmergencyUnitsByType: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
+    }
+
     public EmergencyUnit updateEmergencyUnit(Long unitID, EmergencyUnit unitDetails) {
         return emergencyUnitRepository.findById(unitID)
                 .map(unit -> {

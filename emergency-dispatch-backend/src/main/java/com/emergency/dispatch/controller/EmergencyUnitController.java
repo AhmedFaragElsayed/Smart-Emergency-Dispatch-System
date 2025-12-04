@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.CrossOrigin;
 
@@ -44,11 +45,23 @@ public class EmergencyUnitController {
     }
 
     @GetMapping
-    public ResponseEntity<List<EmergencyUnit>> getAllEmergencyUnits() {
+    public ResponseEntity<List<EmergencyUnit>> getAllEmergencyUnits(@RequestParam(required = false) String type) {
         try {
-            List<EmergencyUnit> units = emergencyUnitService.getAllEmergencyUnits();
+            System.out.println("Getting emergency units with type filter: " + type);
+            List<EmergencyUnit> units;
+            if (type != null && !type.isEmpty()) {
+                System.out.println("Filtering by type: " + type);
+                units = emergencyUnitService.getEmergencyUnitsByType(type);
+                System.out.println("Found " + units.size() + " units of type " + type);
+            } else {
+                System.out.println("Getting all units (no filter)");
+                units = emergencyUnitService.getAllEmergencyUnits();
+                System.out.println("Found " + units.size() + " total units");
+            }
             return ResponseEntity.ok(units);
         } catch (Exception e) {
+            System.err.println("Error getting emergency units: " + e.getMessage());
+            e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

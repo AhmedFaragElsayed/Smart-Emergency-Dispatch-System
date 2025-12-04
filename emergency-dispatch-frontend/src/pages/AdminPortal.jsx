@@ -2,12 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import IncidentCard from '../components/IncidentCard';
 import EmergencyUnitCard from '../components/EmergencyUnitCard';
+import NotificationBell from '../components/NotificationBell';
+import { useAuth } from '../context/AuthContext';
 import websocketService from '../services/websocketService';
 import apiService from '../services/apiService';
 import '../styles/AdminPortal.css';
 
 const AdminPortal = () => {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const [incidents, setIncidents] = useState([]);
   const [emergencyUnits, setEmergencyUnits] = useState([]);
   const [selectedIncident, setSelectedIncident] = useState(null);
@@ -111,18 +114,36 @@ const AdminPortal = () => {
     }
   };
 
+  const getUnitTypeFromIncidentType = (incidentType) => {
+    const typeMap = {
+      'MEDICAL': 'Ambulance',
+      'Medical': 'Ambulance',
+      'medical': 'Ambulance',
+      'FIRE': 'Fire Truck',
+      'Fire': 'Fire Truck',
+      'fire': 'Fire Truck',
+      'POLICE': 'Police Car',
+      'Police': 'Police Car',
+      'police': 'Police Car'
+    };
+    return typeMap[incidentType] || incidentType;
+  };
+
   const handleDispatch = async (incident) => {
     console.log('Dispatching incident:', incident);
+    console.log('Incident type:', incident.type);
     setSelectedIncident(incident);
 
     try {
-      const units = await apiService.fetchEmergencyUnits(incident.type);
+      const unitType = getUnitTypeFromIncidentType(incident.type);
+      console.log('Mapped to unit type:', unitType);
+      const units = await apiService.fetchEmergencyUnits(unitType);
       console.log('Loaded emergency units:', units);
       setEmergencyUnits(units);
       setShowUnitsModal(true);
     } catch (error) {
       console.error('Error fetching emergency units:', error);
-      alert('Failed to fetch emergency units');
+      alert(`Failed to fetch emergency units: ${error.message}\n\nMake sure the backend server is running.`);
     }
   };
 
@@ -151,9 +172,9 @@ const AdminPortal = () => {
     console.log('Assigning units:', selectedUnits, 'to incident:', selectedIncident);
 
     try {
-      // Assign all selected units
+      // Assign all selected units using the current logged-in user's ID
       const assignmentPromises = selectedUnits.map((unitId) =>
-        apiService.assignUnit(unitId, selectedIncident.incidentId || selectedIncident.id)
+        apiService.assignUnit(unitId, selectedIncident.incidentId || selectedIncident.id, user.id)
       );
 
       await Promise.all(assignmentPromises);
@@ -222,9 +243,19 @@ const AdminPortal = () => {
       <header className="admin-header">
         <button className="back-button" onClick={() => navigate('/')}>← Back to Home</button>
         <h1>🚨 Emergency Dispatch Admin Portal</h1>
-        <div className="connection-status">
-          <span className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}></span>
-          <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <NotificationBell />
+          <div className="connection-status">
+            <span className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}></span>
+            <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
+          </div>
+          <button 
+            className="back-button" 
+            onClick={() => { logout(); navigate('/signin'); }}
+            style={{ background: '#e74c3c' }}
+          >
+            Logout
+          </button>
         </div>
       </header>
 

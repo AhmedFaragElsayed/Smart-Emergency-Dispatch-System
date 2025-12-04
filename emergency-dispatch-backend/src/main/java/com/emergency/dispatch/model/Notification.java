@@ -35,14 +35,17 @@ public class Notification {
 
    @ManyToOne
    @JoinColumn(name = "unit_id", referencedColumnName = "userid")
+   @JsonIgnoreProperties({"assignments", "notifications"})
    private EmergencyUnit emergencyUnit;
 
    @ManyToOne
    @JoinColumn(name = "incident_id")
+   @JsonIgnoreProperties({"assignments", "notifications"})
    private Incident incident;
    
    @ManyToOne
    @JoinColumn(name = "user_id", referencedColumnName = "userID", nullable = true)
+   @JsonIgnoreProperties({"assignments", "notifications", "password"})
    private User user;
    
    @Column(name = "message")
