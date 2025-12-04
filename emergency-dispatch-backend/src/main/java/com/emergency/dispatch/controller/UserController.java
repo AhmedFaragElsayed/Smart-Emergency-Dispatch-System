@@ -68,11 +68,17 @@ public class UserController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
         try {
+            System.out.println("Attempting to delete user with ID: " + id);
             userService.deleteUser(id);
+            System.out.println("User deleted successfully: " + id);
             return ResponseEntity.noContent().build();
         } catch (RuntimeException e) {
+            System.err.println("Error deleting user " + id + ": " + e.getMessage());
+            e.printStackTrace();
             return ResponseEntity.notFound().build();
         } catch (Exception e) {
+            System.err.println("Unexpected error deleting user " + id + ": " + e.getMessage());
+            e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

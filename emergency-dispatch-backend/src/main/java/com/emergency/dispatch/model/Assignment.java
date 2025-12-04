@@ -38,7 +38,7 @@ private Incident incident;
 @JsonIgnoreProperties({"assignments", "notifications"})
 private EmergencyUnit emergencyUnit;
 @ManyToOne
-@JoinColumn(name = "user_id", referencedColumnName = "userID")
+@JoinColumn(name = "user_id", referencedColumnName = "userID", nullable = true)
 @JsonIgnoreProperties({"assignments", "notifications"})
 private User user;
 @Column(name = "isActive")

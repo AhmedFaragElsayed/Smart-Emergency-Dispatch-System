@@ -105,6 +105,58 @@ class ApiService {
       throw error;
     }
   }
+
+  async fetchUsers() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/users`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch users');
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      throw error;
+    }
+  }
+
+  async createUser(userData) {
+    const response = await fetch(`${API_BASE_URL}/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(userData),
+    });
+    if (!response.ok) throw new Error('Failed to create user');
+    return await response.json();
+  }
+
+  async updateUser(userId, userData) {
+    const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(userData),
+    });
+    if (!response.ok) throw new Error('Failed to update user');
+    return await response.json();
+  }
+
+  async deleteUser(userId) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.text().catch(() => '');
+        const errorMessage = errorData || `Failed to delete user (Status: ${response.status})`;
+        throw new Error(errorMessage);
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error in deleteUser:', error);
+      throw error;
+    }
+  }
 }
 
 const apiService = new ApiService();

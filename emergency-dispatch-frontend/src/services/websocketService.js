@@ -59,7 +59,7 @@ class WebSocketService {
 
   subscribeToTopics() {
     // Subscribe to incident updates
-    this.subscribe('/topic/incidents', (message) => {
+    this.subscribe('/topic/incidents-monitor/update', (message) => {
       const incident = JSON.parse(message.body);
       console.log('Received incident update:', incident);
       this.notifyListeners('incidentUpdate', incident);

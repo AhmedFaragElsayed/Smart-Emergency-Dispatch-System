@@ -42,7 +42,7 @@ public class Notification {
    private Incident incident;
    
    @ManyToOne
-   @JoinColumn(name = "user_id", referencedColumnName = "userID")
+   @JoinColumn(name = "user_id", referencedColumnName = "userID", nullable = true)
    private User user;
    
    @Column(name = "message")
