@@ -9,6 +9,7 @@ import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DeadlockLoserDataAccessException;
 
 import com.emergency.dispatch.model.Assignment;
 import com.emergency.dispatch.model.EmergencyUnit;
@@ -45,20 +46,59 @@ public class AssignmentService {
     @Autowired
     private IncidentMonitorService incidentMonitorService;
 
+    /**
+     * Public method with retry logic for handling deadlocks
+     */
+    public Assignment createAssignment(Long userId, Long incidentId, Long unitId) {
+        int maxRetries = 3;
+        int retryCount = 0;
+        long waitTime = 100; // Start with 100ms
+        
+        while (retryCount < maxRetries) {
+            try {
+                return createAssignmentInternal(userId, incidentId, unitId);
+            } catch (Exception e) {
+                // Check if it's a deadlock exception
+                String errorMessage = e.getMessage().toLowerCase();
+                if (errorMessage.contains("deadlock") && retryCount < maxRetries - 1) {
+                    retryCount++;
+                    System.out.println("Deadlock detected, retrying... Attempt " + retryCount + " of " + maxRetries);
+                    try {
+                        // Exponential backoff
+                        Thread.sleep(waitTime);
+                        waitTime *= 2; // Double the wait time for next retry
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Retry interrupted", ie);
+                    }
+                } else {
+                    // Not a deadlock or max retries reached
+                    throw e;
+                }
+            }
+        }
+        throw new RuntimeException("Failed to create assignment after " + maxRetries + " attempts due to deadlocks");
+    }
     
     @Transactional
-    public Assignment createAssignment(Long userId, Long incidentId, Long unitId) {
-        // Validate user exists
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User with ID " + userId + " not found"));
-
-        // Validate incident exists
+    private Assignment createAssignmentInternal(Long userId, Long incidentId, Long unitId) {
+        // To prevent deadlocks, always acquire locks in this order:
+        // 1. Incident (by ID - using pessimistic lock to prevent concurrent updates)
+        // 2. EmergencyUnit
+        // 3. User
+        
+        // Validate incident FIRST - This is critical to prevent deadlocks
+        // When assigning multiple units to the same incident, they all need to lock the incident
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new RuntimeException("Incident with ID " + incidentId + " not found"));
 
-        // Validate emergency unit exists
+        // Validate emergency unit SECOND
         EmergencyUnit emergencyUnit = emergencyUnitRepository.findById(unitId)
                 .orElseThrow(() -> new RuntimeException("Emergency Unit with ID " + unitId + " not found"));
+
+        // Validate user LAST (users are rarely updated concurrently)
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User with ID " + userId + " not found"));
 
         // Check if emergency unit already has an active assignment
         List<Assignment> activeAssignments = assignmentRepository.findByEmergencyUnitAndIsActiveTrue(emergencyUnit);
@@ -68,7 +108,18 @@ public class AssignmentService {
                 "). Please deactivate it first or choose another unit.");
         }
 
-        // Create new assignment
+        // Update incident status FIRST (already have the lock)
+        // Only update status if it's PENDING, don't change if already DISPATCHED
+        if (incident.getStatus() == null || incident.getStatus().equalsIgnoreCase("PENDING")) {
+            incident.setStatus("DISPATCHED");
+            incident = incidentRepository.save(incident);
+        }
+
+        // Set emergency unit status to unavailable SECOND (true = busy/unavailable)
+        emergencyUnit.setStatus(true);
+        emergencyUnit = emergencyUnitRepository.save(emergencyUnit);
+
+        // Create new assignment LAST
         Assignment assignment = new Assignment();
         assignment.setUser(user);
         assignment.setIncident(incident);
@@ -77,27 +128,22 @@ public class AssignmentService {
         assignment.setIsActive(true);
         assignment.setResolutionTime(null); // Not resolved yet
 
-        // Set emergency unit status to unavailable (true = active/unavailable)
-        emergencyUnit.setStatus(true);
-        emergencyUnitRepository.save(emergencyUnit);
-
         // Save assignment
         Assignment savedAssignment = assignmentRepository.save(assignment);
         
-        // Update incident status to "dispatched" when first unit is assigned
-        if (incident.getStatus() == null || !incident.getStatus().equals("dispatched")) {
-            incident.setStatus("dispatched");
-            incidentRepository.save(incident);
-            
+        // Broadcast updates AFTER transaction (outside of critical section)
+        try {
             // Broadcast incident update via incident monitor service
             incidentMonitorService.broadcastIncidentUpdate(incidentId);
+            
+            // Broadcast WebSocket notification about the new active assignment
+            messagingTemplate.convertAndSend("/topic/assignments", (Object) savedAssignment);
+            
+            // Broadcast updated emergency unit status to monitoring system
+            monitorService.broadcastUnitStatusUpdate(unitId);
+        } catch (Exception e) {
+            System.err.println("Error broadcasting assignment updates: " + e.getMessage());
         }
-        
-        // Broadcast WebSocket notification about the new active assignment
-        messagingTemplate.convertAndSend("/topic/assignments", (Object) savedAssignment);
-        
-        // Broadcast updated emergency unit status to monitoring system
-        monitorService.broadcastUnitStatusUpdate(unitId);
         
         return savedAssignment;
     }
