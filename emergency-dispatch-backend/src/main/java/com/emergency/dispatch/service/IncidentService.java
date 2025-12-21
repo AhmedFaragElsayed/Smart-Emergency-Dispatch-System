@@ -9,6 +9,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
+import com.emergency.dispatch.enums.IncidentStatus;
+import com.emergency.dispatch.enums.IncidentType;
 import com.emergency.dispatch.model.Assignment;
 import com.emergency.dispatch.model.Incident;
 import com.emergency.dispatch.model.Notification;
@@ -43,56 +45,31 @@ public class IncidentService {
     private AssignmentService assignmentService;
 
     public Incident createIncident(Incident incident) {
-        try {
-            Incident savedIncident = incidentRepository.save(incident);
-            
-            // Broadcast the update to all monitoring clients
-            monitorService.broadcastIncidentUpdate(savedIncident.getIncidentId());
-            
-            // Notify all admin users about the new incident
-            notifyAdminsAboutNewIncident(savedIncident);
-            
-            return savedIncident;
-        } catch (Exception e) {
-            System.out.println("Error creating incident: " + e.getMessage());
-            throw new RuntimeException("Failed to create incident: " + e.getMessage());
-        }
+        if (incident.getType() == null) throw new IllegalArgumentException("Incident type is required");
+        if (incident.getStatus() == null) incident.setStatus(IncidentStatus.PENDING);
+        Incident savedIncident = incidentRepository.save(incident);
+        monitorService.broadcastIncidentUpdate(savedIncident.getIncidentId());
+        notifyAdminsAboutNewIncident(savedIncident);
+        return savedIncident;
     }
 
     private void notifyAdminsAboutNewIncident(Incident incident) {
         try {
-            // Get all users with Admin role
             List<User> admins = userRepository.findAll().stream()
                     .filter(user -> "Admin".equalsIgnoreCase(user.getRole()))
                     .toList();
-            
-            System.out.println("Notifying " + admins.size() + " admin(s) about new incident #" + incident.getIncidentId());
-            
             for (User admin : admins) {
-                System.out.println("Creating notification for admin: " + admin.getUserName() + " (ID: " + admin.getUserID() + ")");
-                
-                // Create notification
                 Notification notification = Notification.builder()
                         .user(admin)
                         .incident(incident)
                         .message("New " + incident.getType() + " incident #" + incident.getIncidentId() + " has been created")
                         .notificationTime(LocalDate.now())
                         .build();
-                
-                // Save notification to database
                 Notification savedNotification = notificationRepository.save(notification);
-                System.out.println("Notification saved with ID: " + savedNotification.getNotificationId());
-                
-                // Broadcast notification via WebSocket
-                System.out.println("Broadcasting notification to /topic/notifications");
                 messagingTemplate.convertAndSend("/topic/notifications", savedNotification);
-                
-                System.out.println("Notification broadcast complete for admin: " + admin.getUserName());
             }
         } catch (Exception e) {
             System.err.println("Error notifying admins: " + e.getMessage());
-            e.printStackTrace();
-            // Don't throw exception - notification failure shouldn't stop incident creation
         }
     }
         
@@ -107,50 +84,29 @@ public class IncidentService {
 
     public Incident updateIncident(Long incidentId, Incident incidentDetails) {
         Incident incident = incidentRepository.findById(incidentId)
-                .orElseThrow(() -> new RuntimeException("Incident not found with id: " + incidentId));
-        
-        // Check if status is changing to "resolved"
-        String oldStatus = incident.getStatus();
-        String newStatus = incidentDetails.getStatus();
-        boolean statusChangedToResolved = newStatus != null && 
-                                         "resolved".equalsIgnoreCase(newStatus) && 
-                                         !newStatus.equalsIgnoreCase(oldStatus);
-        
-        // Update incident fields
-        incident.setType(incidentDetails.getType());
-        incident.setLatitude(incidentDetails.getLatitude());
-        incident.setLongtitude(incidentDetails.getLongtitude());
-        incident.setNeeds(incidentDetails.getNeeds());
-        incident.setSeverityLevel(incidentDetails.getSeverityLevel());
-        incident.setReportedTime(incidentDetails.getReportedTime());
-        if (newStatus != null) {
-            incident.setStatus(newStatus);
-        }
-        
+                .orElseThrow(() -> new IllegalArgumentException("Incident not found with id: " + incidentId));
+        IncidentType newType = incidentDetails.getType();
+        if (newType != null) incident.setType(newType);
+        if (incidentDetails.getLatitude() != null) incident.setLatitude(incidentDetails.getLatitude());
+        if (incidentDetails.getLongtitude() != null) incident.setLongtitude(incidentDetails.getLongtitude());
+        if (incidentDetails.getNeeds() != null) incident.setNeeds(incidentDetails.getNeeds());
+        if (incidentDetails.getSeverityLevel() != null) incident.setSeverityLevel(incidentDetails.getSeverityLevel());
+        if (incidentDetails.getReportedTime() != null) incident.setReportedTime(incidentDetails.getReportedTime());
+        IncidentStatus newStatus = incidentDetails.getStatus();
+        if (newStatus != null) incident.setStatus(newStatus);
         Incident updatedIncident = incidentRepository.save(incident);
-        
-        // If status changed to resolved, deactivate all active assignments for this incident
-        if (statusChangedToResolved) {
+        // If status changed to COMPLETED, deactivate all active assignments for this incident
+        if (newStatus == IncidentStatus.COMPLETED) {
             List<Assignment> activeAssignments = assignmentRepository
                     .findByIncident_IncidentIdAndIsActiveTrue(incidentId);
-            
-            System.out.println("Incident " + incidentId + " resolved. Deactivating " + 
-                             activeAssignments.size() + " active assignments.");
-            
             for (Assignment assignment : activeAssignments) {
                 try {
                     assignmentService.deactivateAssignment(assignment.getAssignmentId());
-                    System.out.println("Deactivated assignment " + assignment.getAssignmentId() + 
-                                     " for unit " + assignment.getEmergencyUnit().getUnitID());
                 } catch (Exception e) {
-                    System.err.println("Error deactivating assignment " + 
-                                     assignment.getAssignmentId() + ": " + e.getMessage());
+                    System.err.println("Error deactivating assignment " + assignment.getAssignmentId() + ": " + e.getMessage());
                 }
             }
         }
-        
-        // Broadcast the update to all monitoring clients
-        monitorService.broadcastIncidentUpdate(incidentId);
         return updatedIncident;
     }
 

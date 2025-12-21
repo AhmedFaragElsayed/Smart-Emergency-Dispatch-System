@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Incident WebSocket Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+        .status { margin: 10px 0; padding: 8px; border-radius: 4px; font-weight: bold; }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        #incidents, #units {
+            margin-top: 20px;
+            border: 2px solid #28a745;
+            background: #eafaf1;
+            padding: 16px;
+            min-height: 120px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px #28a74522;
+        }
+        .incident, .unit {
+            margin: 8px 0;
+            padding: 8px;
+            background: #fff;
+            border-left: 4px solid #007bff;
+            border-radius: 3px;
+        }
+        .unit {
+            border-left-color: #28a745;
+        }
+        .incident .meta, .unit .meta {
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h2>Incident WebSocket Test</h2>
+    <div id="status" class="status disconnected">Disconnected</div>
+    <div style="margin-bottom: 15px;">
+        <button id="connectBtn">Connect WebSocket</button>
+        <button id="disconnectBtn" disabled>Disconnect</button>
+    </div>
+    <fieldset style="margin: 20px 0; border: 2px solid #007bff; padding: 15px;">
+        <legend style="color: #007bff; font-size: 16px;">Generate Random Incidents</legend>
+        <label for="incidentCount">Number of Incidents:</label>
+        <input type="number" id="incidentCount" min="1" max="100" value="3" style="width: 60px;">
+        <button id="generateBtn">Generate</button>
+        <span id="resultMsg" style="margin-left: 10px; color: #155724;"></span>
+    </fieldset>
+    <h3>Live Incidents</h3>
+    <div id="incidents"><em>Waiting for incidents...</em></div>
+
+    <fieldset style="margin: 20px 0; border: 2px solid #28a745; padding: 15px;">
+        <legend style="color: #28a745; font-size: 16px;">Generate Random Emergency Units</legend>
+        <label for="unitCount">Number of Units:</label>
+        <input type="number" id="unitCount" min="1" max="100" value="3" style="width: 60px;">
+        <button id="generateUnitBtn">Generate Units</button>
+        <span id="unitResultMsg" style="margin-left: 10px; color: #155724;"></span>
+    </fieldset>
+    <h3>Live Emergency Units</h3>
+    <div id="units" style="margin-top: 20px; border: 2px solid #28a745; background: #eafaf1; padding: 16px; min-height: 120px; border-radius: 8px; box-shadow: 0 2px 8px #28a74522;">
+        <em>Waiting for units...</em>
+    </div>
+
+    <script>
+        let ws = null;
+        let connected = false;
+        const statusDiv = document.getElementById('status');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const incidentsDiv = document.getElementById('incidents');
+        const resultMsg = document.getElementById('resultMsg');
+        let incidents = [];
+
+        function updateStatus(isConnected) {
+            connected = isConnected;
+            statusDiv.textContent = isConnected ? 'Connected' : 'Disconnected';
+            statusDiv.className = 'status ' + (isConnected ? 'connected' : 'disconnected');
+            connectBtn.disabled = isConnected;
+            disconnectBtn.disabled = !isConnected;
+        }
+
+        connectBtn.onclick = function() {
+            ws = new WebSocket('ws://localhost:9696/ws');
+            ws.onopen = function() {
+                updateStatus(true);
+                // STOMP CONNECT
+                ws.send('CONNECT\naccept-version:1.2\nhost:localhost\n\n\0');
+                // Subscribe to /topic/incidents after a short delay
+                setTimeout(() => {
+                    ws.send('SUBSCRIBE\nid:sub-1\ndestination:/topic/incidents\n\n\0');
+                }, 300);
+            };
+            ws.onmessage = function(event) {
+                const data = event.data;
+                if (data.includes('CONNECTED')) return;
+                if (data.includes('MESSAGE')) {
+                    const body = data.split('\n\n')[1].replace(/\u0000$/, '');
+                    try {
+                        const incident = JSON.parse(body);
+                        incidents.unshift(incident);
+                        renderIncidents();
+                    } catch (e) {}
+                }
+            };
+            ws.onclose = function() { updateStatus(false); };
+            ws.onerror = function() { updateStatus(false); };
+        };
+        disconnectBtn.onclick = function() {
+            if (ws) ws.close();
+            updateStatus(false);
+        };
+        document.getElementById('generateBtn').onclick = function() {
+            const count = parseInt(document.getElementById('incidentCount').value, 10);
+            if (!count || count < 1) {
+                resultMsg.textContent = 'Enter a valid number.';
+                return;
+            }
+            fetch('http://localhost:9696/api/incidents/generate?count=' + count, { method: 'POST' })
+                .then(res => res.text())
+                .then(msg => { resultMsg.textContent = msg; })
+                .catch(err => { resultMsg.textContent = 'Error: ' + err; });
+        };
+        function renderIncidents() {
+            if (!incidents.length) {
+                incidentsDiv.innerHTML = '<em>Waiting for incidents...</em>';
+                return;
+            }
+            incidentsDiv.innerHTML = '';
+            incidents.forEach(inc => {
+                const div = document.createElement('div');
+                div.className = 'incident';
+                div.innerHTML = `<strong>Incident #${inc.incidentId}</strong> - <span>${inc.type}</span> <span class="meta">[${inc.severityLevel}]</span><br>
+                    <span class="meta">Needs: ${inc.needs}, Location: ${inc.latitude.toFixed(4)}, ${inc.longtitude.toFixed(4)}, Reported: ${inc.reportedTime}</span>`;
+                incidentsDiv.appendChild(div);
+            });
+        }
+
+        let units = [];
+        const unitsDiv = document.getElementById('units');
+        const generateUnitBtn = document.getElementById('generateUnitBtn');
+        const unitResultMsg = document.getElementById('unitResultMsg');
+        let wsUnits = null;
+        let unitsConnected = false;
+
+        function updateUnitsStatus(isConnected) {
+            unitsConnected = isConnected;
+        }
+
+        function connectUnitsWebSocket() {
+            wsUnits = new WebSocket('ws://localhost:9696/ws');
+            wsUnits.onopen = function() {
+                updateUnitsStatus(true);
+                wsUnits.send('CONNECT\naccept-version:1.2\nhost:localhost\n\n\0');
+                setTimeout(() => {
+                    wsUnits.send('SUBSCRIBE\nid:sub-units\ndestination:/topic/emergency-units\n\n\0');
+                }, 300);
+            };
+            wsUnits.onmessage = function(event) {
+                const data = event.data;
+                if (data.includes('CONNECTED')) return;
+                if (data.includes('MESSAGE')) {
+                    const body = data.split('\n\n')[1].replace(/\u0000$/, '');
+                    try {
+                        const receivedUnits = JSON.parse(body);
+                        units = receivedUnits;
+                        renderUnits();
+                    } catch (e) {}
+                }
+            };
+            wsUnits.onclose = function() { updateUnitsStatus(false); };
+            wsUnits.onerror = function() { updateUnitsStatus(false); };
+        }
+        connectUnitsWebSocket();
+
+        generateUnitBtn.onclick = function() {
+            const count = parseInt(document.getElementById('unitCount').value, 10);
+            if (!count || count < 1) {
+                unitResultMsg.textContent = 'Enter a valid number.';
+                return;
+            }
+            fetch('http://localhost:9696/api/emergency-units/generator/generate-random?count=' + count, { method: 'POST' })
+                .then(res => res.text())
+                .then(msg => { unitResultMsg.textContent = msg; })
+                .catch(err => { unitResultMsg.textContent = 'Error: ' + err; });
+        };
+        function renderUnits() {
+            if (!units.length) {
+                unitsDiv.innerHTML = '<em>Waiting for units...</em>';
+                return;
+            }
+            unitsDiv.innerHTML = '';
+            units.forEach(unit => {
+                const div = document.createElement('div');
+                div.className = 'unit';
+                div.innerHTML = `<strong>Unit #${unit.unitID}</strong> - <span>${unit.type}</span> <span class="meta">[Capacity: ${unit.capacity}]</span><br>
+                    <span class="meta">Location: ${unit.latitude.toFixed(4)}, ${unit.longtitude.toFixed(4)}, Status: ${unit.status ? 'Available' : 'Busy'}</span>`;
+                unitsDiv.appendChild(div);
+            });
+        }
+    </script>
+</body>
+</html>

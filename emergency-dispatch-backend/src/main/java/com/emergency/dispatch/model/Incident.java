@@ -6,6 +6,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.emergency.dispatch.enums.IncidentStatus;
+import com.emergency.dispatch.enums.IncidentType;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
@@ -16,6 +18,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.EnumType;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -37,15 +41,17 @@ public class Incident {
  private Double longtitude;
  @Column(name = "Needs")
  private Integer needs;
+ @Enumerated(EnumType.STRING)
  @Column(name = "type")
- private String type;
+ private IncidentType type;
  @Column(name = "reportedTime")
  @JsonFormat(pattern = "yyyy-MM-dd['T'HH:mm:ss]")
  private LocalDateTime reportedTime;
  @Column(name = "severityLevel")
  private String severityLevel;
+ @Enumerated(EnumType.STRING)
  @Column(name = "status")
- private String status;
+ private IncidentStatus status;
  @OneToMany(mappedBy = "incident")
  private List<Assignment> assignments = new ArrayList<>();
  @OneToMany(mappedBy = "incident")

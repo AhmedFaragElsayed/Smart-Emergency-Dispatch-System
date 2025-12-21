@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.CrossOrigin;
 
 import com.emergency.dispatch.model.EmergencyUnit;
+import com.emergency.dispatch.enums.EmergencyUnitType;
 import com.emergency.dispatch.service.EmergencyUnitService;
 
 @RestController
@@ -49,7 +50,13 @@ public class EmergencyUnitController {
         try {
             List<EmergencyUnit> units;
             if (type != null && !type.isEmpty()) {
-                units = emergencyUnitService.getEmergencyUnitsByType(type);
+                EmergencyUnitType enumType;
+                try {
+                    enumType = EmergencyUnitType.valueOf(type.toUpperCase());
+                } catch (IllegalArgumentException e) {
+                    return ResponseEntity.badRequest().build();
+                }
+                units = emergencyUnitService.getEmergencyUnitsByType(enumType);
             } else {
                 units = emergencyUnitService.getAllEmergencyUnits();
             }

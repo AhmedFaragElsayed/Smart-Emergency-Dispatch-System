@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.CrossOrigin;
 
 import com.emergency.dispatch.model.Incident;
 import com.emergency.dispatch.service.IncidentService;
+import com.emergency.dispatch.enums.IncidentType;
+import com.emergency.dispatch.enums.IncidentStatus;
 
 @RestController
 @RequestMapping("/api/incidents")
@@ -33,39 +35,41 @@ public class IncidentController {
     public ResponseEntity<Incident> createIncident(@RequestBody Map<String, Object> incidentData) {
         try {
             System.out.println("Received incident data: " + incidentData);
-            
             Incident incident = new Incident();
-            incident.setType((String) incidentData.get("type"));
-            incident.setLatitude(((Number) incidentData.get("latitude")).doubleValue());
-            incident.setLongtitude(((Number) incidentData.get("longtitude")).doubleValue());
-            
-            // Handle needs - could be Integer or String
+            // Parse type as enum
+            if (incidentData.containsKey("type")) {
+                String typeStr = (String) incidentData.get("type");
+                incident.setType(IncidentType.valueOf(typeStr.toUpperCase()));
+            }
+            if (incidentData.containsKey("latitude")) {
+                incident.setLatitude(((Number) incidentData.get("latitude")).doubleValue());
+            }
+            if (incidentData.containsKey("longtitude")) {
+                incident.setLongtitude(((Number) incidentData.get("longtitude")).doubleValue());
+            }
             Object needsObj = incidentData.get("needs");
             if (needsObj instanceof Number) {
                 incident.setNeeds(((Number) needsObj).intValue());
             } else if (needsObj instanceof String) {
                 incident.setNeeds(Integer.parseInt((String) needsObj));
             }
-            
-            incident.setSeverityLevel((String) incidentData.get("severityLevel"));
-            
+            if (incidentData.containsKey("severityLevel")) {
+                incident.setSeverityLevel((String) incidentData.get("severityLevel"));
+            }
             // Set default status to PENDING
-            incident.setStatus("PENDING");
-            
-            // Handle reportedTime - can be date or datetime
+            incident.setStatus(IncidentStatus.PENDING);
             String reportedTimeStr = (String) incidentData.get("reportedTime");
             if (reportedTimeStr != null) {
                 if (reportedTimeStr.length() == 10) {
-                    // Date only format: 2025-12-03
                     incident.setReportedTime(LocalDateTime.parse(reportedTimeStr + "T00:00:00"));
                 } else {
-                    // DateTime format: 2025-12-03T10:30:00
                     incident.setReportedTime(LocalDateTime.parse(reportedTimeStr));
                 }
             }
-            
             Incident createdIncident = incidentService.createIncident(incident);
             return ResponseEntity.status(HttpStatus.CREATED).body(createdIncident);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
         } catch (Exception e) {
             System.err.println("Error creating incident: " + e.getMessage());
             e.printStackTrace();
@@ -104,12 +108,10 @@ public class IncidentController {
     public ResponseEntity<Incident> updateIncident(@PathVariable("id") Long id, @RequestBody Map<String, Object> incidentData) {
         try {
             System.out.println("Updating incident " + id + " with data: " + incidentData);
-            
-            // Create incident object from map
             Incident incidentDetails = new Incident();
-            
             if (incidentData.containsKey("type")) {
-                incidentDetails.setType((String) incidentData.get("type"));
+                String typeStr = (String) incidentData.get("type");
+                incidentDetails.setType(IncidentType.valueOf(typeStr.toUpperCase()));
             }
             if (incidentData.containsKey("latitude")) {
                 incidentDetails.setLatitude(((Number) incidentData.get("latitude")).doubleValue());
@@ -129,7 +131,8 @@ public class IncidentController {
                 incidentDetails.setSeverityLevel((String) incidentData.get("severityLevel"));
             }
             if (incidentData.containsKey("status")) {
-                incidentDetails.setStatus((String) incidentData.get("status"));
+                String statusStr = (String) incidentData.get("status");
+                incidentDetails.setStatus(IncidentStatus.valueOf(statusStr.toUpperCase()));
             }
             if (incidentData.containsKey("reportedTime")) {
                 String reportedTimeStr = (String) incidentData.get("reportedTime");
@@ -141,13 +144,12 @@ public class IncidentController {
                     }
                 }
             }
-            
             Incident updatedIncident = incidentService.updateIncident(id, incidentDetails);
             return ResponseEntity.ok(updatedIncident);
-        } catch (RuntimeException e) {
-            System.err.println("Incident not found: " + e.getMessage());
+        } catch (IllegalArgumentException e) {
+            System.err.println("Incident not found or invalid enum: " + e.getMessage());
             e.printStackTrace();
-            return ResponseEntity.notFound().build();
+            return ResponseEntity.badRequest().build();
         } catch (Exception e) {
             System.err.println("Error updating incident: " + e.getMessage());
             e.printStackTrace();

@@ -15,6 +15,8 @@ import com.emergency.dispatch.model.Incident;
 import com.emergency.dispatch.repository.EmergencyUnitRepository;
 import com.emergency.dispatch.repository.AssignmentRepository;
 import com.emergency.dispatch.repository.IncidentRepository;
+import com.emergency.dispatch.enums.IncidentStatus;
+import com.emergency.dispatch.enums.EmergencyUnitType;
 
 @Service
 public class EmergencyUnitService {
@@ -54,21 +56,11 @@ public class EmergencyUnitService {
         return emergencyUnitRepository.findAll();
     }
 
-    public List<EmergencyUnit> getEmergencyUnitsByType(String type) {
-        try {
-            List<EmergencyUnit> allUnits = emergencyUnitRepository.findAll();
-            
-            List<EmergencyUnit> filteredUnits = allUnits.stream()
-                    .filter(unit -> type.equalsIgnoreCase(unit.getType()))
-                    .toList();
-            
-            System.out.println("Found " + filteredUnits.size() + " units of type '" + type + "'");
-            return filteredUnits;
-        } catch (Exception e) {
-            System.err.println("Error in getEmergencyUnitsByType: " + e.getMessage());
-            e.printStackTrace();
-            throw e;
-        }
+    public List<EmergencyUnit> getEmergencyUnitsByType(EmergencyUnitType type) {
+        List<EmergencyUnit> allUnits = emergencyUnitRepository.findAll();
+        return allUnits.stream()
+                .filter(unit -> unit.getType() == type)
+                .toList();
     }
 
     public EmergencyUnit updateEmergencyUnit(Long unitID, EmergencyUnit unitDetails) {
@@ -80,11 +72,10 @@ public class EmergencyUnitService {
                     unit.setCapacity(unitDetails.getCapacity());
                     unit.setStatus(unitDetails.getStatus());
                     EmergencyUnit savedUnit = emergencyUnitRepository.save(unit);
-                    // Broadcast all data changes to monitoring system
                     monitorService.broadcastUnitStatusUpdate(savedUnit.getUnitID());
                     return savedUnit;
                 })
-                .orElseThrow(() -> new RuntimeException("Emergency unit not found with id: " + unitID));
+                .orElseThrow(() -> new IllegalArgumentException("Emergency unit not found with id: " + unitID));
     }
 
     public EmergencyUnit updateLocation(Long unitID, Double latitude, Double longitude) {
@@ -93,116 +84,80 @@ public class EmergencyUnitService {
                     unit.setLatitude(latitude);
                     unit.setLongtitude(longitude);
                     EmergencyUnit savedUnit = emergencyUnitRepository.save(unit);
-                    // Broadcast location change to monitoring system
                     monitorService.broadcastUnitStatusUpdate(savedUnit.getUnitID());
                     return savedUnit;
                 })
-                .orElseThrow(() -> new RuntimeException("Emergency unit not found with id: " + unitID));
+                .orElseThrow(() -> new IllegalArgumentException("Emergency unit not found with id: " + unitID));
     }
 
     @Transactional
     public void deleteEmergencyUnit(Long unitID) {
-        try {
-            // First, collect all data we need before making changes (to avoid deadlocks)
-            EmergencyUnit unit = emergencyUnitRepository.findById(unitID)
-                    .orElseThrow(() -> new RuntimeException("Emergency unit not found with id: " + unitID));
-            
-            // Find all assignments for this emergency unit
-            List<Assignment> unitAssignments = assignmentRepository.findByEmergencyUnit_UnitID(unitID);
-            
-            // Collect all unique incident IDs and affected unit IDs
-            Set<Long> affectedIncidentIds = new HashSet<>();
-            Set<Long> affectedUnitIds = new HashSet<>();
-            
-            for (Assignment assignment : unitAssignments) {
-                if (assignment.getIncident() != null) {
-                    affectedIncidentIds.add(assignment.getIncident().getIncidentId());
-                }
+        // First, collect all data we need before making changes (to avoid deadlocks)
+        EmergencyUnit unit = emergencyUnitRepository.findById(unitID)
+                .orElseThrow(() -> new IllegalArgumentException("Emergency unit not found with id: " + unitID));
+        List<Assignment> unitAssignments = assignmentRepository.findByEmergencyUnit_UnitID(unitID);
+        Set<Long> affectedIncidentIds = new HashSet<>();
+        Set<Long> affectedUnitIds = new HashSet<>();
+        for (Assignment assignment : unitAssignments) {
+            if (assignment.getIncident() != null) {
+                affectedIncidentIds.add(assignment.getIncident().getIncidentId());
             }
-            
-            // Collect all assignments and units for affected incidents
-            // This ensures we handle ALL units assigned to the same incidents
-            for (Long incidentId : affectedIncidentIds) {
-                List<Assignment> incidentAssignments = assignmentRepository.findByIncident_IncidentId(incidentId);
-                for (Assignment assignment : incidentAssignments) {
-                    if (assignment.getEmergencyUnit() != null) {
-                        affectedUnitIds.add(assignment.getEmergencyUnit().getUnitID());
-                    }
-                }
-            }
-            
-            // Now perform updates in a consistent order to avoid deadlocks
-            // Order: Units -> Assignments -> Incidents
-            
-            // 1. Update all affected units to available (in ID order to prevent deadlock)
-            List<Long> sortedUnitIds = new java.util.ArrayList<>(affectedUnitIds);
-            java.util.Collections.sort(sortedUnitIds);
-            
-            for (Long affectedUnitId : sortedUnitIds) {
-                Optional<EmergencyUnit> unitOpt = emergencyUnitRepository.findById(affectedUnitId);
-                if (unitOpt.isPresent()) {
-                    EmergencyUnit affectedUnit = unitOpt.get();
-                    affectedUnit.setStatus(false); // false = available
-                    emergencyUnitRepository.save(affectedUnit);
-                }
-            }
-            
-            // 2. Delete all assignments for affected incidents
-            for (Long incidentId : affectedIncidentIds) {
-                List<Assignment> incidentAssignments = assignmentRepository.findByIncident_IncidentId(incidentId);
-                assignmentRepository.deleteAll(incidentAssignments);
-            }
-            
-            // 3. Update all affected incidents to PENDING (in ID order to prevent deadlock)
-            List<Long> sortedIncidentIds = new java.util.ArrayList<>(affectedIncidentIds);
-            java.util.Collections.sort(sortedIncidentIds);
-            
-            for (Long incidentId : sortedIncidentIds) {
-                Optional<Incident> incidentOpt = incidentRepository.findById(incidentId);
-                if (incidentOpt.isPresent()) {
-                    Incident incident = incidentOpt.get();
-                    incident.setStatus("PENDING");
-                    incidentRepository.save(incident);
-                }
-            }
-            
-            // 4. Clear bidirectional relationships before deletion
-            if (unit.getAssignments() != null) {
-                unit.getAssignments().clear();
-            }
-            if (unit.getNotifications() != null) {
-                unit.getNotifications().clear();
-            }
-            
-            // 5. Finally, delete the emergency unit
-            emergencyUnitRepository.delete(unit);
-            emergencyUnitRepository.flush();
-            
-            // 6. Broadcast updates after transaction commits
-            for (Long affectedUnitId : sortedUnitIds) {
-                try {
-                    monitorService.broadcastUnitStatusUpdate(affectedUnitId);
-                } catch (Exception e) {
-                    System.err.println("Error broadcasting unit update for unit " + affectedUnitId);
-                }
-            }
-            
-            for (Long incidentId : sortedIncidentIds) {
-                try {
-                    incidentMonitorService.broadcastIncidentUpdate(incidentId);
-                } catch (Exception e) {
-                    System.err.println("Error broadcasting incident update for incident " + incidentId);
-                }
-            }
-            
-            System.out.println("Successfully deleted emergency unit " + unitID + 
-                             " and reset " + affectedIncidentIds.size() + " incident(s) to PENDING status, " +
-                             "freed " + affectedUnitIds.size() + " unit(s)");
-        } catch (Exception e) {
-            System.err.println("Error deleting emergency unit " + unitID + ": " + e.getMessage());
-            e.printStackTrace();
-            throw new RuntimeException("Failed to delete emergency unit: " + e.getMessage());
         }
+        for (Long incidentId : affectedIncidentIds) {
+            List<Assignment> incidentAssignments = assignmentRepository.findByIncident_IncidentId(incidentId);
+            for (Assignment assignment : incidentAssignments) {
+                if (assignment.getEmergencyUnit() != null) {
+                    affectedUnitIds.add(assignment.getEmergencyUnit().getUnitID());
+                }
+            }
+        }
+        List<Long> sortedUnitIds = new java.util.ArrayList<>(affectedUnitIds);
+        java.util.Collections.sort(sortedUnitIds);
+        for (Long affectedUnitId : sortedUnitIds) {
+            Optional<EmergencyUnit> unitOpt = emergencyUnitRepository.findById(affectedUnitId);
+            unitOpt.ifPresent(affectedUnit -> {
+                affectedUnit.setStatus(false); // false = available
+                emergencyUnitRepository.save(affectedUnit);
+            });
+        }
+        for (Long incidentId : affectedIncidentIds) {
+            List<Assignment> incidentAssignments = assignmentRepository.findByIncident_IncidentId(incidentId);
+            assignmentRepository.deleteAll(incidentAssignments);
+        }
+        List<Long> sortedIncidentIds = new java.util.ArrayList<>(affectedIncidentIds);
+        java.util.Collections.sort(sortedIncidentIds);
+        for (Long incidentId : sortedIncidentIds) {
+            Optional<Incident> incidentOpt = incidentRepository.findById(incidentId);
+            incidentOpt.ifPresent(incident -> {
+                incident.setStatus(IncidentStatus.PENDING);
+                incidentRepository.save(incident);
+            });
+        }
+        if (unit.getAssignments() != null) {
+            unit.getAssignments().clear();
+        }
+        if (unit.getNotifications() != null) {
+            unit.getNotifications().clear();
+        }
+        emergencyUnitRepository.delete(unit);
+        emergencyUnitRepository.flush();
+        for (Long affectedUnitId : sortedUnitIds) {
+            try {
+                monitorService.broadcastUnitStatusUpdate(affectedUnitId);
+            } catch (Exception e) {
+                System.err.println("Error broadcasting unit update for unit " + affectedUnitId);
+            }
+        }
+        for (Long incidentId : sortedIncidentIds) {
+            try {
+                incidentMonitorService.broadcastIncidentUpdate(incidentId);
+            } catch (Exception e) {
+                System.err.println("Error broadcasting incident update for incident " + incidentId);
+            }
+        }
+        System.out.println("Successfully deleted emergency unit " + unitID +
+                         " and reset " + affectedIncidentIds.size() + " incident(s) to PENDING status, " +
+                         "freed " + affectedUnitIds.size() + " unit(s)");
     }
 
     public boolean emergencyUnitExists(Long unitID) {
