@@ -1,9 +1,10 @@
-package com.emergency.dispatch.controller;
+package com.emergency.dispatch.controller.IOcontroller;
 
-import com.emergency.dispatch.service.IncidentGeneratorService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import com.emergency.dispatch.service.IOservice.IncidentGeneratorService;
 
 @RestController
 @RequestMapping("/api/incidents/generate")

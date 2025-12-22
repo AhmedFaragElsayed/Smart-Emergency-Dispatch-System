@@ -1,7 +1,8 @@
-package com.emergency.dispatch.service;
+package com.emergency.dispatch.service.IOservice;
 
 import com.emergency.dispatch.enums.IncidentStatus;
 import com.emergency.dispatch.enums.IncidentType;
+import com.emergency.dispatch.enums.SeverityLevel;
 import com.emergency.dispatch.model.Incident;
 import com.emergency.dispatch.repository.IncidentRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,7 +21,7 @@ public class IncidentGeneratorService {
     private SimpMessagingTemplate messagingTemplate;
 
     private static final IncidentType[] TYPES = IncidentType.values();
-    private static final String[] SEVERITIES = {"LOW", "MEDIUM", "HIGH"};
+    private static final SeverityLevel[] SEVERITIES = SeverityLevel.values();
     private static final Random RANDOM = new Random();
 
     public void generateRandomIncidents(int count) {

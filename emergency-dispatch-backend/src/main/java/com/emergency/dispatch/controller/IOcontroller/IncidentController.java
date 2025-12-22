@@ -1,4 +1,4 @@
-package com.emergency.dispatch.controller;
+package com.emergency.dispatch.controller.IOcontroller;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -54,7 +54,8 @@ public class IncidentController {
                 incident.setNeeds(Integer.parseInt((String) needsObj));
             }
             if (incidentData.containsKey("severityLevel")) {
-                incident.setSeverityLevel((String) incidentData.get("severityLevel"));
+                String severityStr = (String) incidentData.get("severityLevel");
+                incident.setSeverityLevel(com.emergency.dispatch.enums.SeverityLevel.valueOf(severityStr.toUpperCase()));
             }
             // Set default status to PENDING
             incident.setStatus(IncidentStatus.PENDING);
@@ -128,7 +129,8 @@ public class IncidentController {
                 }
             }
             if (incidentData.containsKey("severityLevel")) {
-                incidentDetails.setSeverityLevel((String) incidentData.get("severityLevel"));
+                String severityStr = (String) incidentData.get("severityLevel");
+                incidentDetails.setSeverityLevel(com.emergency.dispatch.enums.SeverityLevel.valueOf(severityStr.toUpperCase()));
             }
             if (incidentData.containsKey("status")) {
                 String statusStr = (String) incidentData.get("status");

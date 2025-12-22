@@ -1,4 +1,4 @@
-package com.emergency.dispatch.controller;
+package com.emergency.dispatch.controller.IOcontroller;
 
 import java.util.List;
 
@@ -14,7 +14,6 @@ import com.emergency.dispatch.service.AssignmentService;
 
 @Controller
 public class AssignmentWebSocketController {
-
     @Autowired
     private AssignmentService assignmentService;
 

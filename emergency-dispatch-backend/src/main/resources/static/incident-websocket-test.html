@@ -8,7 +8,7 @@
         .status { margin: 10px 0; padding: 8px; border-radius: 4px; font-weight: bold; }
         .connected { background: #d4edda; color: #155724; }
         .disconnected { background: #f8d7da; color: #721c24; }
-        #incidents, #units {
+        #incidents, #units, #assignments {
             margin-top: 20px;
             border: 2px solid #28a745;
             background: #eafaf1;
@@ -17,7 +17,7 @@
             border-radius: 8px;
             box-shadow: 0 2px 8px #28a74522;
         }
-        .incident, .unit {
+        .incident, .unit, .assignment {
             margin: 8px 0;
             padding: 8px;
             background: #fff;
@@ -27,7 +27,10 @@
         .unit {
             border-left-color: #28a745;
         }
-        .incident .meta, .unit .meta {
+        .assignment {
+            border-left-color: #ff9800;
+        }
+        .incident .meta, .unit .meta, .assignment .meta {
             font-size: 12px;
             color: #666;
         }
@@ -62,6 +65,18 @@
         <em>Waiting for units...</em>
     </div>
 
+    <fieldset style="margin: 20px 0; border: 2px solid #ff9800; padding: 15px;">
+        <legend style="color: #ff9800; font-size: 16px;">Simulation Control</legend>
+        <button id="startSimBtn">Start Simulation</button>
+        <button id="stopSimBtn">Stop Simulation</button>
+        <span id="simResultMsg" style="margin-left: 10px; color: #155724;"></span>
+    </fieldset>
+    <h3>Live Assignments</h3>
+    <div id="assignments" style="margin-top: 20px; border: 2px solid #ff9800; background: #fff8e1; padding: 16px; min-height: 120px; border-radius: 8px; box-shadow: 0 2px 8px #ff980022;">
+        <em>Waiting for assignments...</em>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
     <script>
         let ws = null;
         let connected = false;
@@ -196,6 +211,53 @@
                 div.innerHTML = `<strong>Unit #${unit.unitID}</strong> - <span>${unit.type}</span> <span class="meta">[Capacity: ${unit.capacity}]</span><br>
                     <span class="meta">Location: ${unit.latitude.toFixed(4)}, ${unit.longtitude.toFixed(4)}, Status: ${unit.status ? 'Available' : 'Busy'}</span>`;
                 unitsDiv.appendChild(div);
+            });
+        }
+
+        // Simulation control
+        const startSimBtn = document.getElementById('startSimBtn');
+        const stopSimBtn = document.getElementById('stopSimBtn');
+        const simResultMsg = document.getElementById('simResultMsg');
+        startSimBtn.onclick = function() {
+            fetch('http://localhost:9696/api/simulation/start', { method: 'POST' })
+                .then(res => res.text())
+                .then(msg => { simResultMsg.textContent = msg; })
+                .catch(err => { simResultMsg.textContent = 'Error: ' + err; });
+        };
+        stopSimBtn.onclick = function() {
+            fetch('http://localhost:9696/api/simulation/stop', { method: 'POST' })
+                .then(res => res.text())
+                .then(msg => { simResultMsg.textContent = msg; })
+                .catch(err => { simResultMsg.textContent = 'Error: ' + err; });
+        };
+        // Assignments WebSocket using STOMP
+        let assignments = [];
+        const assignmentsDiv = document.getElementById('assignments');
+        const stompClient = new StompJs.Client({
+            brokerURL: 'ws://localhost:9696/ws'
+        });
+        stompClient.onConnect = function() {
+            stompClient.subscribe('/topic/assignments/all', function(message) {
+                assignments = JSON.parse(message.body);
+                renderAssignments();
+            });
+            // Request all assignments on connect
+            stompClient.publish({destination: '/app/assignments.getAll', body: ''});
+        };
+        stompClient.activate();
+        function renderAssignments() {
+            if (!assignments.length) {
+                assignmentsDiv.innerHTML = '<em>Waiting for assignments...</em>';
+                return;
+            }
+            assignmentsDiv.innerHTML = '';
+            assignments.forEach(a => {
+                const div = document.createElement('div');
+                div.className = 'unit';
+                div.style.borderLeft = '4px solid #ff9800';
+                div.innerHTML = `<strong>Assignment #${a.assignmentId}</strong> - <span>Unit: ${a.emergencyUnit ? a.emergencyUnit.unitID : ''}</span> <span>Incident: ${a.incident ? a.incident.incidentId : ''}</span><br>
+                    <span class="meta">Assigned: ${a.assignmentTime || ''}, Active: ${a.isActive ? 'Yes' : 'No'}</span>`;
+                assignmentsDiv.appendChild(div);
             });
         }
     </script>

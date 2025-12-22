@@ -8,6 +8,7 @@ import java.util.List;
 
 import com.emergency.dispatch.enums.IncidentStatus;
 import com.emergency.dispatch.enums.IncidentType;
+import com.emergency.dispatch.enums.SeverityLevel;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
@@ -47,8 +48,9 @@ public class Incident {
  @Column(name = "reportedTime")
  @JsonFormat(pattern = "yyyy-MM-dd['T'HH:mm:ss]")
  private LocalDateTime reportedTime;
+ @Enumerated(EnumType.STRING)
  @Column(name = "severityLevel")
- private String severityLevel;
+ private SeverityLevel severityLevel;
  @Enumerated(EnumType.STRING)
  @Column(name = "status")
  private IncidentStatus status;

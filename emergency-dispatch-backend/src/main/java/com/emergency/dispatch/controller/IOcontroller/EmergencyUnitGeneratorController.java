@@ -1,7 +1,8 @@
-package com.emergency.dispatch.controller;
+package com.emergency.dispatch.controller.IOcontroller;
 
 import com.emergency.dispatch.model.EmergencyUnit;
-import com.emergency.dispatch.service.EmergencyUnitGeneratorService;
+import com.emergency.dispatch.service.IOservice.EmergencyUnitGeneratorService;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
