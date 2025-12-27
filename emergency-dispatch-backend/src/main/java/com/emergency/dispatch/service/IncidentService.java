@@ -49,6 +49,8 @@ public class IncidentService {
         if (incident.getStatus() == null) incident.setStatus(IncidentStatus.PENDING);
         Incident savedIncident = incidentRepository.save(incident);
         monitorService.broadcastIncidentUpdate(savedIncident.getIncidentId());
+        // Broadcast all incidents for real-time list update
+        messagingTemplate.convertAndSend("/topic/incidents", incidentRepository.findAll());
         notifyAdminsAboutNewIncident(savedIncident);
         return savedIncident;
     }
@@ -107,6 +109,9 @@ public class IncidentService {
                 }
             }
         }
+        monitorService.broadcastIncidentUpdate(updatedIncident.getIncidentId());
+        // Broadcast all incidents for real-time list update
+        messagingTemplate.convertAndSend("/topic/incidents", incidentRepository.findAll());
         return updatedIncident;
     }
 
@@ -115,6 +120,8 @@ public class IncidentService {
             incidentRepository.deleteById(incidentId);
             // Broadcast the deletion to all monitoring clients
             monitorService.broadcastIncidentDeletion(incidentId);
+            // Broadcast all incidents for real-time list update
+            messagingTemplate.convertAndSend("/topic/incidents", incidentRepository.findAll());
         } else {
             throw new RuntimeException("Incident not found with id: " + incidentId);
         }
@@ -128,5 +135,9 @@ public class IncidentService {
         return incidentRepository.findAll().stream()
                 .filter(incident -> severityLevel.equals(incident.getSeverityLevel()))
                 .toList();
+    }
+
+    public List<Incident> getLiveIncidents() {
+        return incidentRepository.findByStatusIn(List.of(IncidentStatus.PENDING, IncidentStatus.DISPATCH));
     }
 }

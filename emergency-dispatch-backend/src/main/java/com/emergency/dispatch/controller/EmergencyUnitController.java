@@ -78,6 +78,11 @@ public class EmergencyUnitController {
         }
     }
 
+    @GetMapping("/all")
+    public List<EmergencyUnit> getAllUnits() {
+        return emergencyUnitService.getAllUnits();
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<EmergencyUnit> updateEmergencyUnit(@PathVariable("id") Long id, @RequestBody EmergencyUnit unitDetails) {
         try {

@@ -100,6 +100,10 @@ public class SimulationService {
             assignmentRepository.save(assignment);
             // Broadcast updated assignments list
             messagingTemplate.convertAndSend("/topic/assignments/all", assignmentRepository.findAll());
+            // Broadcast updated units list for real-time status
+            messagingTemplate.convertAndSend("/topic/emergency-units", emergencyUnitRepository.findAll());
+            // Broadcast updated incidents list for real-time status
+            messagingTemplate.convertAndSend("/topic/incidents", incidentRepository.findAll());
         }
     }
 

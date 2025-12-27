@@ -8,7 +8,7 @@
         .status { margin: 10px 0; padding: 8px; border-radius: 4px; font-weight: bold; }
         .connected { background: #d4edda; color: #155724; }
         .disconnected { background: #f8d7da; color: #721c24; }
-        #incidents, #units, #assignments {
+        #incidents, #units, #assignments, #completedIncidents {
             margin-top: 20px;
             border: 2px solid #28a745;
             background: #eafaf1;
@@ -76,6 +76,11 @@
         <em>Waiting for assignments...</em>
     </div>
 
+    <h3>Assignment Completion</h3>
+    <div id="assignmentCompleteMsg"><em>No completion messages yet.</em></div>
+    <h3>Completed Incidents</h3>
+    <div id="completedIncidents"><em>No completed incidents yet.</em></div>
+
     <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
     <script>
         let ws = null;
@@ -95,6 +100,7 @@
             disconnectBtn.disabled = !isConnected;
         }
 
+        // Connect to WebSocket and subscribe to incident updates
         connectBtn.onclick = function() {
             ws = new WebSocket('ws://localhost:9696/ws');
             ws.onopen = function() {
@@ -112,9 +118,22 @@
                 if (data.includes('MESSAGE')) {
                     const body = data.split('\n\n')[1].replace(/\u0000$/, '');
                     try {
-                        const incident = JSON.parse(body);
-                        incidents.unshift(incident);
-                        renderIncidents();
+                        const parsed = JSON.parse(body);
+                        console.log('WebSocket /topic/incidents received:', parsed); // Debug log
+                        if (Array.isArray(parsed)) {
+                            // Full incident list broadcast
+                            incidents = parsed;
+                            renderIncidents();
+                        } else {
+                            // Single incident broadcast (legacy)
+                            const idx = incidents.findIndex(i => i.incidentId === parsed.incidentId);
+                            if (idx !== -1) {
+                                incidents[idx] = parsed;
+                            } else {
+                                incidents.push(parsed);
+                            }
+                            renderIncidents();
+                        }
                     } catch (e) {}
                 }
             };
@@ -133,7 +152,16 @@
             }
             fetch('http://localhost:9696/api/incidents/generate?count=' + count, { method: 'POST' })
                 .then(res => res.text())
-                .then(msg => { resultMsg.textContent = msg; })
+                .then(msg => { 
+                    resultMsg.textContent = msg;
+                    // Fetch all incidents to update the list immediately
+                    fetch('http://localhost:9696/api/incidents')
+                        .then(res => res.json())
+                        .then(data => {
+                            incidents = data;
+                            renderIncidents();
+                        });
+                })
                 .catch(err => { resultMsg.textContent = 'Error: ' + err; });
         };
         function renderIncidents() {
@@ -145,50 +173,32 @@
             incidents.forEach(inc => {
                 const div = document.createElement('div');
                 div.className = 'incident';
-                div.innerHTML = `<strong>Incident #${inc.incidentId}</strong> - <span>${inc.type}</span> <span class="meta">[${inc.severityLevel}]</span><br>
+                let statusColor = inc.status === 'PENDING' ? '#007bff' : (inc.status === 'DISPATCH' ? '#ff9800' : '#28a745');
+                let statusLabel = inc.status === 'PENDING' ? 'Pending' : (inc.status === 'DISPATCH' ? 'Dispatched' : 'Completed');
+                let statusBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:bold; color:#fff; background:${statusColor};margin-left:8px;">${statusLabel}</span>`;
+                div.innerHTML = `<strong>Incident #${inc.incidentId}</strong> - <span>${inc.type}</span> <span class="meta">[${inc.severityLevel}]</span> ${statusBadge}<br>
                     <span class="meta">Needs: ${inc.needs}, Location: ${inc.latitude.toFixed(4)}, ${inc.longtitude.toFixed(4)}, Reported: ${inc.reportedTime}</span>`;
                 incidentsDiv.appendChild(div);
             });
         }
 
+        // Emergency Units WebSocket using STOMP
         let units = [];
         const unitsDiv = document.getElementById('units');
-        const generateUnitBtn = document.getElementById('generateUnitBtn');
-        const unitResultMsg = document.getElementById('unitResultMsg');
-        let wsUnits = null;
-        let unitsConnected = false;
+        const stompUnitsClient = new StompJs.Client({
+            brokerURL: 'ws://localhost:9696/ws'
+        });
+        stompUnitsClient.onConnect = function() {
+            stompUnitsClient.subscribe('/topic/emergency-units', function(message) {
+                units = JSON.parse(message.body);
+                renderUnits();
+            });
+            // Request all units on connect
+            stompUnitsClient.publish({destination: '/app/units/subscribe', body: ''});
+        };
+        stompUnitsClient.activate();
 
-        function updateUnitsStatus(isConnected) {
-            unitsConnected = isConnected;
-        }
-
-        function connectUnitsWebSocket() {
-            wsUnits = new WebSocket('ws://localhost:9696/ws');
-            wsUnits.onopen = function() {
-                updateUnitsStatus(true);
-                wsUnits.send('CONNECT\naccept-version:1.2\nhost:localhost\n\n\0');
-                setTimeout(() => {
-                    wsUnits.send('SUBSCRIBE\nid:sub-units\ndestination:/topic/emergency-units\n\n\0');
-                }, 300);
-            };
-            wsUnits.onmessage = function(event) {
-                const data = event.data;
-                if (data.includes('CONNECTED')) return;
-                if (data.includes('MESSAGE')) {
-                    const body = data.split('\n\n')[1].replace(/\u0000$/, '');
-                    try {
-                        const receivedUnits = JSON.parse(body);
-                        units = receivedUnits;
-                        renderUnits();
-                    } catch (e) {}
-                }
-            };
-            wsUnits.onclose = function() { updateUnitsStatus(false); };
-            wsUnits.onerror = function() { updateUnitsStatus(false); };
-        }
-        connectUnitsWebSocket();
-
-        generateUnitBtn.onclick = function() {
+        document.getElementById('generateUnitBtn').onclick = function() {
             const count = parseInt(document.getElementById('unitCount').value, 10);
             if (!count || count < 1) {
                 unitResultMsg.textContent = 'Enter a valid number.';
@@ -208,8 +218,9 @@
             units.forEach(unit => {
                 const div = document.createElement('div');
                 div.className = 'unit';
-                div.innerHTML = `<strong>Unit #${unit.unitID}</strong> - <span>${unit.type}</span> <span class="meta">[Capacity: ${unit.capacity}]</span><br>
-                    <span class="meta">Location: ${unit.latitude.toFixed(4)}, ${unit.longtitude.toFixed(4)}, Status: ${unit.status ? 'Available' : 'Busy'}</span>`;
+                let statusBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:bold; color:#fff; background:${unit.status ? '#28a745' : '#dc3545'};margin-left:8px;">${unit.status ? 'Available' : 'Busy'}</span>`;
+                div.innerHTML = `<strong>Unit #${unit.unitID}</strong> - <span>${unit.type}</span> <span class="meta">[Capacity: ${unit.capacity}]</span> ${statusBadge}<br>
+                    <span class="meta">Location: ${unit.latitude.toFixed(4)}, ${unit.longtitude.toFixed(4)}</span>`;
                 unitsDiv.appendChild(div);
             });
         }
@@ -220,15 +231,15 @@
         const simResultMsg = document.getElementById('simResultMsg');
         startSimBtn.onclick = function() {
             fetch('http://localhost:9696/api/simulation/start', { method: 'POST' })
-                .then(res => res.text())
-                .then(msg => { simResultMsg.textContent = msg; })
-                .catch(err => { simResultMsg.textContent = 'Error: ' + err; });
+                .then((res) => res.text())
+                .then((msg) => { simResultMsg.textContent = msg; })
+                .catch((err) => { simResultMsg.textContent = 'Error: ' + err; });
         };
         stopSimBtn.onclick = function() {
             fetch('http://localhost:9696/api/simulation/stop', { method: 'POST' })
-                .then(res => res.text())
-                .then(msg => { simResultMsg.textContent = msg; })
-                .catch(err => { simResultMsg.textContent = 'Error: ' + err; });
+                .then((res) => res.text())
+                .then((msg) => { simResultMsg.textContent = msg; })
+                .catch((err) => { simResultMsg.textContent = 'Error: ' + err; });
         };
         // Assignments WebSocket using STOMP
         let assignments = [];
@@ -253,13 +264,111 @@
             assignmentsDiv.innerHTML = '';
             assignments.forEach(a => {
                 const div = document.createElement('div');
-                div.className = 'unit';
-                div.style.borderLeft = '4px solid #ff9800';
-                div.innerHTML = `<strong>Assignment #${a.assignmentId}</strong> - <span>Unit: ${a.emergencyUnit ? a.emergencyUnit.unitID : ''}</span> <span>Incident: ${a.incident ? a.incident.incidentId : ''}</span><br>
-                    <span class="meta">Assigned: ${a.assignmentTime || ''}, Active: ${a.isActive ? 'Yes' : 'No'}</span>`;
+                div.className = 'assignment';
+                div.style.borderLeft = a.isActive ? '4px solid #28a745' : '4px solid #dc3545';
+                let statusBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:bold; color:#fff; background:${a.isActive ? '#28a745' : '#dc3545'};margin-left:8px;">${a.isActive ? 'Active' : 'Inactive'}</span>`;
+                div.innerHTML = `<strong>Assignment #${a.assignmentId}</strong> - <span>Unit: ${a.emergencyUnit ? a.emergencyUnit.unitID : ''}</span> <span>Incident: ${a.incident ? a.incident.incidentId : ''}</span> ${statusBadge}<br>
+                    <span class="meta">Assigned: ${a.assignmentTime || ''}</span>`;
+                // Add complete button if assignment is active
+                if (a.isActive && a.incident && a.incident.incidentId) {
+                    const btn = document.createElement('button');
+                    btn.textContent = 'Complete';
+                    btn.style.marginLeft = '12px';
+                    btn.onclick = function() {
+                        fetch(`http://localhost:9696/api/io/assignments/complete/${a.incident.incidentId}`, { method: 'POST' })
+                            .then(res => res.text())
+                            .then(msg => {
+                                alert(msg);
+                                // Fetch all incidents to update the list immediately
+                                fetch('http://localhost:9696/api/incidents')
+                                    .then(res => res.json())
+                                    .then(data => {
+                                        incidents = data;
+                                        renderIncidents();
+                                    });
+                            })
+                            .catch(err => alert('Error: ' + err));
+                    };
+                    div.appendChild(btn);
+                }
                 assignmentsDiv.appendChild(div);
             });
         }
+
+        // --- Assignment Completion WebSocket ---
+        let wsAssignmentComplete = null;
+        const assignmentCompleteDiv = document.getElementById('assignmentCompleteMsg');
+        function connectAssignmentCompleteWebSocket() {
+            wsAssignmentComplete = new WebSocket('ws://localhost:9696/ws');
+            wsAssignmentComplete.onopen = function() {
+                wsAssignmentComplete.send('CONNECT\naccept-version:1.2\nhost:localhost\n\n\0');
+                setTimeout(() => {
+                    wsAssignmentComplete.send('SUBSCRIBE\nid:sub-ac\ndestination:/topic/assignment-complete\n\n\0');
+                }, 300);
+            };
+            wsAssignmentComplete.onmessage = function(event) {
+                const data = event.data;
+                if (data.includes('CONNECTED')) return;
+                if (data.includes('MESSAGE')) {
+                    const body = data.split('\n\n')[1].replace(/\u0000$/, '');
+                    assignmentCompleteDiv.innerHTML = `<strong>${body}</strong>`;
+                }
+            };
+        }
+        connectAssignmentCompleteWebSocket();
+
+        // --- Completed Incidents WebSocket ---
+        let wsCompletedIncidents = null;
+        const completedIncidentsDiv = document.getElementById('completedIncidents');
+        function renderCompletedIncidents(incidents) {
+            console.log('Received completed incidents:', incidents);
+            if (!incidents || !incidents.length) {
+                completedIncidentsDiv.innerHTML = '<em>No completed incidents yet.</em>';
+                return;
+            }
+            completedIncidentsDiv.innerHTML = '';
+            incidents.forEach(inc => {
+                const div = document.createElement('div');
+                div.className = 'incident';
+                div.innerHTML = `<strong>Incident #${inc.incidentId}</strong> - <span>${inc.type}</span> <span class="meta">[${inc.severityLevel}]</span><br>
+                    <span class="meta">Needs: ${inc.needs}, Location: ${inc.latitude?.toFixed(4)}, ${inc.longtitude?.toFixed(4)}, Reported: ${inc.reportedTime}</span>`;
+                completedIncidentsDiv.appendChild(div);
+            });
+        }
+        function connectCompletedIncidentsWebSocket() {
+            wsCompletedIncidents = new WebSocket('ws://localhost:9696/ws');
+            wsCompletedIncidents.onopen = function() {
+                wsCompletedIncidents.send('CONNECT\naccept-version:1.2\nhost:localhost\n\n\0');
+                setTimeout(() => {
+                    wsCompletedIncidents.send('SUBSCRIBE\nid:sub-ci\ndestination:/topic/completed-incidents\n\n\0');
+                }, 300);
+            };
+            wsCompletedIncidents.onmessage = function(event) {
+                const data = event.data;
+                if (data.includes('CONNECTED')) return;
+                if (data.includes('MESSAGE')) {
+                    const body = data.split('\n\n')[1].replace(/\u0000$/, '');
+                    try {
+                        const incidents = JSON.parse(body);
+                        renderCompletedIncidents(incidents);
+                    } catch (e) {}
+                }
+            };
+        }
+        connectCompletedIncidentsWebSocket();
+
+        // Fetch and display all incidents (including completed) on page load
+        fetch('http://localhost:9696/api/incidents')
+            .then(res => res.json())
+            .then(data => {
+                incidents = data;
+                renderIncidents();
+            });
+
+        // Auto-connect to incident WebSocket on page load
+        window.addEventListener('DOMContentLoaded', function() {
+            connectBtn.onclick();
+        });
     </script>
 </body>
 </html>

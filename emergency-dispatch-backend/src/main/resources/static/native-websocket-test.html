@@ -399,6 +399,17 @@
         </div>
     </div>
     
+    <!-- Test: Generate Random Incidents -->
+    <fieldset style="margin: 20px 0; border: 2px solid #007bff; padding: 15px;">
+        <legend style="color: #007bff; font-size: 16px;">Test: Generate Random Incidents</legend>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <label for="randomIncidentCount">Number of Incidents:</label>
+            <input type="number" id="randomIncidentCount" min="1" max="100" value="5" style="width: 80px;">
+            <button id="generateIncidentsBtn" class="send-btn">Generate & Broadcast</button>
+        </div>
+        <div id="generateIncidentsResult" style="margin-top: 10px; color: #155724;"></div>
+    </fieldset>
+    
     <div id="messages"></div>
     
     <script>
@@ -1439,19 +1450,31 @@
             document.getElementById('unassignedIncidents').textContent = unassigned;
         }
 
-        function disconnect() {
-            if (ws) {
-                log('Sending STOMP DISCONNECT frame...');
-                const disconnectFrame = 'DISCONNECT\n\n\0';
-                ws.send(disconnectFrame);
-                
-                setTimeout(() => {
-                    ws.close();
-                    ws = null;
-                }, 100);
+        // Generate Random Incidents
+        document.getElementById('generateIncidentsBtn').onclick = function() {
+            const count = parseInt(document.getElementById('randomIncidentCount').value, 10);
+            if (!count || count < 1) {
+                document.getElementById('generateIncidentsResult').textContent = 'Please enter a valid number.';
+                return;
             }
-            updateStatus(false);
-            log('Disconnected');
+            fetch('/api/incidents/generate?count=' + count, { method: 'POST' })
+                .then(res => res.text())
+                .then(msg => {
+                    document.getElementById('generateIncidentsResult').textContent = msg;
+                })
+                .catch(err => {
+                    document.getElementById('generateIncidentsResult').textContent = 'Error: ' + err;
+                });
+        };
+        
+        // Listen for new incidents in real time
+        // If not already present, add WebSocket subscription logic for /topic/incidents
+        function listenForNewIncidents() {
+            if (!connected || !ws) return;
+            
+            log('Subscribing to /topic/incidents for real-time updates...');
+            const subscribeFrame = 'SUBSCRIBE\nid:sub-12\ndestination:/topic/incidents\n\n\0';
+            ws.send(subscribeFrame);
         }
 
         // Initialize

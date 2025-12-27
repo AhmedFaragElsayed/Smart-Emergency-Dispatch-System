@@ -37,5 +37,7 @@ public class IncidentGeneratorService {
             Incident saved = incidentRepository.save(incident);
             messagingTemplate.convertAndSend("/topic/incidents", saved);
         }
+        // Broadcast all incidents after generation
+        messagingTemplate.convertAndSend("/topic/incidents", incidentRepository.findAll());
     }
 }

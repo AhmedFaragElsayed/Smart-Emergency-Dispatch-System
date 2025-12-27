@@ -169,4 +169,8 @@ public class EmergencyUnitService {
                 .filter(unit -> Boolean.TRUE.equals(unit.getStatus()))
                 .toList();
     }
+
+    public List<EmergencyUnit> getAllUnits() {
+        return emergencyUnitRepository.findAll();
+    }
 }

@@ -7,6 +7,8 @@ import com.emergency.dispatch.service.EmergencyUnitMonitorService;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -18,6 +20,9 @@ public class EmergencyUnitGeneratorService {
 
     @Autowired
     private EmergencyUnitMonitorService monitorService;
+
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
 
     public List<EmergencyUnit> generateRandomEmergencyUnits(int count) {
         List<EmergencyUnit> createdUnits = new ArrayList<>();
@@ -34,6 +39,9 @@ public class EmergencyUnitGeneratorService {
             monitorService.broadcastUnitStatusUpdate(savedUnit.getUnitID());
             createdUnits.add(savedUnit);
         }
+        // Broadcast the full updated list to /topic/emergency-units
+        List<EmergencyUnit> allUnits = emergencyUnitRepository.findAll();
+        messagingTemplate.convertAndSend("/topic/emergency-units", allUnits);
         return createdUnits;
     }
 }

@@ -105,6 +105,11 @@ public class IncidentController {
         }
     }
 
+    @GetMapping("/live")
+    public List<Incident> getLiveIncidents() {
+        return incidentService.getLiveIncidents();
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<Incident> updateIncident(@PathVariable("id") Long id, @RequestBody Map<String, Object> incidentData) {
         try {

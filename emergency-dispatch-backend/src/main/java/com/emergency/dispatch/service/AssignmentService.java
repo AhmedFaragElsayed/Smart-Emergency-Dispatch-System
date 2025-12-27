@@ -113,6 +113,8 @@ public class AssignmentService {
             incidentMonitorService.broadcastIncidentUpdate(incidentId);
             messagingTemplate.convertAndSend("/topic/assignments", (Object) savedAssignment);
             monitorService.broadcastUnitStatusUpdate(unitId);
+            // Broadcast updated incident list for real-time
+            messagingTemplate.convertAndSend("/topic/incidents", incidentRepository.findAll());
         } catch (Exception e) {
             System.err.println("Error broadcasting assignment updates: " + e.getMessage());
         }
@@ -145,6 +147,8 @@ public class AssignmentService {
         
         // Broadcast updated emergency unit status to monitoring system
         monitorService.broadcastUnitStatusUpdate(emergencyUnit.getUnitID());
+        // Broadcast updated incident list for real-time (includes completed incidents)
+        messagingTemplate.convertAndSend("/topic/incidents", incidentRepository.findAll());
         
         return savedAssignment;
     }

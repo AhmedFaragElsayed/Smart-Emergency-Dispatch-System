@@ -72,8 +72,13 @@ public class IncidentMonitorService {
                 assignmentInfo.put("isActive", assignment.getIsActive());
                 assignmentInfo.put("unitId", assignment.getEmergencyUnit().getUnitID());
                 assignmentInfo.put("unitType", assignment.getEmergencyUnit().getType());
-                assignmentInfo.put("userId", assignment.getUser().getUserID());
-                assignmentInfo.put("userName", assignment.getUser().getUserName());
+                if (assignment.getUser() != null) {
+                    assignmentInfo.put("userId", assignment.getUser().getUserID());
+                    assignmentInfo.put("userName", assignment.getUser().getUserName());
+                } else {
+                    assignmentInfo.put("userId", null);
+                    assignmentInfo.put("userName", "Unknown");
+                }
                 assignmentsInfo.add(assignmentInfo);
             }
             incidentData.put("activeAssignments", assignmentsInfo);
