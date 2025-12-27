@@ -79,18 +79,46 @@ class WebSocketService {
   }
 
   subscribeToTopics() {
-    // Subscribe to incident updates
+    // Subscribe to incident updates (individual / incremental)
     this.subscribe('/topic/incidents-monitor/update', (message) => {
       const incident = JSON.parse(message.body);
       console.log('Received incident update:', incident);
       this.notifyListeners('incidentUpdate', incident);
     });
 
-    // Subscribe to emergency unit updates
+    // Also subscribe to new incident publishes (some controllers use /topic/incidents)
+    this.subscribe('/topic/incidents', (message) => {
+      const incident = JSON.parse(message.body);
+      console.log('Received new incident:', incident);
+      this.notifyListeners('incidentAdded', incident);
+    });
+
+    // Subscribe to emergency unit updates (single unit)
     this.subscribe('/topic/units-monitor/update', (message) => {
       const unit = JSON.parse(message.body);
       console.log('Received unit update:', unit);
       this.notifyListeners('unitUpdate', unit);
+    });
+
+    // Subscribe to full units list broadcasts
+    this.subscribe('/topic/units-monitor', (message) => {
+      const units = JSON.parse(message.body);
+      console.log('Received full units list:', units);
+      this.notifyListeners('unitsList', units);
+    });
+
+    // Subscribe to location updates (backend uses /topic/unit-location)
+    this.subscribe('/topic/unit-location', (message) => {
+      const locationUpdate = JSON.parse(message.body);
+      console.log('Received unit location update:', locationUpdate);
+      this.notifyListeners('unitLocation', locationUpdate);
+    });
+
+    // Keep older location-updates subscription name (if used elsewhere)
+    this.subscribe('/topic/location-updates', (message) => {
+      const locationUpdate = JSON.parse(message.body);
+      console.log('Received location update (legacy topic):', locationUpdate);
+      this.notifyListeners('locationUpdate', locationUpdate);
     });
 
     // Subscribe to assignment updates

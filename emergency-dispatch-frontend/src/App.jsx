@@ -4,6 +4,7 @@ import AdminDashboard from './pages/adminDashboard';
 import AdminPortal from './pages/AdminPortal';
 import UnitDashboard from './pages/UnitDashboard';
 import UserDashboard from './pages/UserDashboard';
+import SimulationMap from './pages/SimulationMap';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import websocketService from './services/websocketService';
@@ -47,6 +48,11 @@ function AppContent() {
       <Route path="/users" element={
         <ProtectedRoute>
           <UserDashboard />
+        </ProtectedRoute>
+      } />
+      <Route path="/simulation" element={
+        <ProtectedRoute>
+          <SimulationMap />
         </ProtectedRoute>
       } />
     </Routes>
