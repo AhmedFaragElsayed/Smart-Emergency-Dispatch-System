@@ -28,8 +28,8 @@ public class IncidentGeneratorService {
         for (int i = 0; i < count; i++) {
             Incident incident = new Incident();
             incident.setType(TYPES[RANDOM.nextInt(TYPES.length)]);
-            incident.setLatitude(24.0 + RANDOM.nextDouble() * 2.0); // Example: 24-26
-            incident.setLongtitude(32.0 + RANDOM.nextDouble() * 2.0); // Example: 32-34
+            incident.setLatitude(40.7000 + RANDOM.nextDouble() * 0.13); // Manhattan: 40.7000–40.8300
+            incident.setLongtitude(-74.0200 + RANDOM.nextDouble() * 0.12); // Manhattan: -74.0200–-73.9000
             incident.setNeeds(1 + RANDOM.nextInt(5));
             incident.setSeverityLevel(SEVERITIES[RANDOM.nextInt(SEVERITIES.length)]);
             incident.setStatus(IncidentStatus.PENDING);
