@@ -12,6 +12,9 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
+// Local styles for improved icons
+import '../styles/SimulationMap.css';
+
 const API_BASE = 'http://localhost:9696';
 
 // Las Vegas bounds (approx)
@@ -136,12 +139,10 @@ export default function SimulationMap() {
         .then(updated => {
           // update marker position and style if exists
           const marker = markersRef.current.incidents.get(updated.incidentId);
-          const color = getColorForType(updated.type);
           const severity = (updated.severityLevel || '').toString().toUpperCase();
-          const radius = severity === 'CRITICAL' ? 14 : (severity === 'MEDIUM' ? 10 : 6);
           if (marker && marker.setLatLng) {
             marker.setLatLng([updated.latitude, updated.longtitude]);
-            if (marker.setStyle) marker.setStyle({ radius, fillColor: color, color: '#333', weight: 1, fillOpacity: 0.9 });
+            if (marker.setIcon) marker.setIcon(createIncidentIcon(updated.type, severity, Boolean(updated.hasActiveAssignments || updated.hasAssignments || (updated.assignedUnitsCount && updated.assignedUnitsCount > 0))));
             marker.bindPopup(`<strong>Incident #${updated.incidentId}</strong><br/>Type: ${updated.type}<br/>Severity: ${updated.severityLevel}`);
           } else {
             addOrUpdateIncident(updated);
@@ -217,6 +218,23 @@ export default function SimulationMap() {
     }
   }
 
+  // Create an SVG 'pin' icon for incidents (size depends on severity)
+  function createIncidentIcon(type, severity, hasActive) {
+    const color = getColorForType(type);
+    const size = severity === 'CRITICAL' ? 44 : (severity === 'MEDIUM' ? 36 : 28);
+    const innerColor = '#fff';
+    const opacity = hasActive ? 0.85 : 1.0;
+    const svg = `
+      <svg width="${size}" height="${size}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <g class="pin-shadow">
+          <path class="pulse" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 11 7 11s7-5.75 7-11c0-3.87-3.13-7-7-7z" fill="${color}" fill-opacity="${opacity}" />
+        </g>
+        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 11 7 11s7-5.75 7-11c0-3.87-3.13-7-7-7z" fill="${color}" stroke="#222" stroke-width="0.5" />
+        <circle cx="12" cy="9.5" r="3.1" fill="${innerColor}" />
+      </svg>`;
+    return L.divIcon({ html: svg, className: 'incident-pin-icon', iconSize: [size, size], iconAnchor: [Math.floor(size/2), size], popupAnchor: [0, -Math.floor(size/2)] });
+  }
+
   function addOrUpdateIncident(inc) {
     if (!inc || inc.incidentId == null) return;
     const id = inc.incidentId;
@@ -224,14 +242,10 @@ export default function SimulationMap() {
     const lon = parseFloat(inc.longtitude || inc.longitude || 0);
     if (!isFinite(lat) || !isFinite(lon)) return;
 
-    const color = getColorForType(inc.type);
     const severity = (inc.severityLevel || '').toString().toUpperCase();
-    const radius = severity === 'CRITICAL' ? 14 : (severity === 'MEDIUM' ? 10 : 6);
 
     // If the incident has an active assignment, style it slightly dimmer and show assigned count
     const hasActive = Boolean(inc.hasActiveAssignments || inc.hasAssignments || (inc.assignedUnitsCount && inc.assignedUnitsCount > 0));
-    const fillOpacity = hasActive ? 0.55 : 0.9;
-    const strokeColor = hasActive ? '#000' : '#333';
 
     const assignmentText = hasActive ? `<br/><em>Assigned: ${inc.assignedUnitsCount ?? (inc.totalAssignmentsCount ?? 1)}</em>` : '';
     const popup = `<strong>Incident #${id}</strong><br/>Type: ${inc.type}<br/>Severity: ${inc.severityLevel || ''}${assignmentText}`;
@@ -239,10 +253,19 @@ export default function SimulationMap() {
     if (markersRef.current.incidents.has(id)) {
       const marker = markersRef.current.incidents.get(id);
       if (marker.setLatLng) marker.setLatLng([lat, lon]);
-      if (marker.setStyle) marker.setStyle({ radius, fillColor: color, color: strokeColor, weight: 1, fillOpacity });
-      marker.bindPopup(popup);
+      if (marker.setIcon) marker.setIcon(createIncidentIcon(inc.type, severity, hasActive));
+      else {
+        // fallback for older circle markers: remove and recreate as marker
+        mapRef.current.removeLayer(marker);
+        const newMarker = L.marker([lat, lon], { icon: createIncidentIcon(inc.type, severity, hasActive) }).addTo(mapRef.current);
+        newMarker.bindPopup(popup);
+        markersRef.current.incidents.set(id, newMarker);
+      }
+      // re-bind popup to whichever marker is current
+      const currentMarker = markersRef.current.incidents.get(id);
+      if (currentMarker && currentMarker.bindPopup) currentMarker.bindPopup(popup);
     } else {
-      const marker = L.circleMarker([lat, lon], { radius, fillColor: color, color: strokeColor, weight: 1, fillOpacity }).addTo(mapRef.current);
+      const marker = L.marker([lat, lon], { icon: createIncidentIcon(inc.type, severity, hasActive) }).addTo(mapRef.current);
       marker.bindPopup(popup);
       markersRef.current.incidents.set(id, marker);
     }
@@ -284,17 +307,22 @@ export default function SimulationMap() {
     }
   }
 
-  // Create a small SVG car icon filled with the unit color
+  // Create a richer SVG car icon filled with the unit color (better shape, wheels, headlights)
   function createCarIcon(type) {
     const color = getColorForType(type);
     const svg = `
-      <svg width="28" height="18" viewBox="0 0 28 18" xmlns="http://www.w3.org/2000/svg">
-        <rect x="0" y="4" width="28" height="10" rx="2" ry="2" fill="${color}" />
-        <circle cx="7" cy="14" r="2" fill="#111" />
-        <circle cx="21" cy="14" r="2" fill="#111" />
-        <rect x="4" y="6" width="20" height="6" rx="1" fill="#ffffff33" />
+      <svg width="36" height="20" viewBox="0 0 36 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <g>
+          <rect class="body" x="1" y="4" width="34" height="10" rx="3" ry="3" fill="${color}"/>
+          <rect x="6" y="6" width="10" height="6" rx="1" fill="#ffffff55"/>
+          <rect x="20" y="6" width="8" height="6" rx="1" fill="#ffffff33"/>
+          <ellipse cx="9" cy="16" rx="3" ry="2.2" fill="#111"/>
+          <ellipse cx="27" cy="16" rx="3" ry="2.2" fill="#111"/>
+          <rect x="1" y="4" width="34" height="10" rx="3" fill-opacity="0" stroke="#111" stroke-width="0.8"/>
+          <rect x="30" y="7" width="3" height="2" rx="0.8" fill="#fff9" />
+        </g>
       </svg>`;
-    return L.divIcon({ html: svg, className: 'unit-car-icon', iconSize: [28, 18], iconAnchor: [14, 9] });
+    return L.divIcon({ html: svg, className: 'unit-car-icon', iconSize: [36, 20], iconAnchor: [18, 10], popupAnchor: [0, -10] });
   }
 
   async function generateUnits(countParam) {

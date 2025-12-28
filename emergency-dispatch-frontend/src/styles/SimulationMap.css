@@ -1,0 +1,8 @@
+.unit-car-icon svg{display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.6));}
+.unit-car-icon{transform:translateY(-3px);} 
+.unit-car-icon svg .body{stroke:#222;stroke-width:0.5} 
+.incident-pin-icon svg{display:block;}
+.incident-pin-icon{transform:translateY(-6px);} 
+.incident-pin-icon .pin-shadow{filter:drop-shadow(0 3px 6px rgba(0,0,0,0.5));}
+.incident-pin-icon .pulse{fill-opacity:0.12;animation:pinPulse 1.8s infinite ease-out;}
+@keyframes pinPulse{0%{transform:scale(1);opacity:1}70%{transform:scale(1.8);opacity:0}100%{transform:scale(2);opacity:0}}
