@@ -14,16 +14,16 @@ L.Icon.Default.mergeOptions({
 
 const API_BASE = 'http://localhost:9696';
 
-// Manhattan bounds (approx)
-const MANHATTAN_BOUNDS = {
-  minLat: 40.70,
-  maxLat: 40.88,
-  minLng: -74.02,
-  maxLng: -73.93
+// Las Vegas bounds (approx)
+const LAS_VEGAS_BOUNDS = {
+  minLat: 36.04,
+  maxLat: 36.27,
+  minLng: -115.29,
+  maxLng: -115.04
 };
-function randomManhattan() {
-  const lat = MANHATTAN_BOUNDS.minLat + Math.random() * (MANHATTAN_BOUNDS.maxLat - MANHATTAN_BOUNDS.minLat);
-  const lng = MANHATTAN_BOUNDS.minLng + Math.random() * (MANHATTAN_BOUNDS.maxLng - MANHATTAN_BOUNDS.minLng);
+function randomLasVegas() {
+  const lat = LAS_VEGAS_BOUNDS.minLat + Math.random() * (LAS_VEGAS_BOUNDS.maxLat - LAS_VEGAS_BOUNDS.minLat);
+  const lng = LAS_VEGAS_BOUNDS.minLng + Math.random() * (LAS_VEGAS_BOUNDS.maxLng - LAS_VEGAS_BOUNDS.minLng);
   return { lat, lng };
 }
 
@@ -41,15 +41,15 @@ export default function SimulationMap() {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(mapRef.current);
 
-    // Constrain map to Manhattan bounds and prevent zooming out beyond the area
-    const manhattanBounds = L.latLngBounds([
-      [MANHATTAN_BOUNDS.minLat, MANHATTAN_BOUNDS.minLng],
-      [MANHATTAN_BOUNDS.maxLat, MANHATTAN_BOUNDS.maxLng]
+    // Constrain map to Las Vegas bounds and prevent zooming out beyond the area
+    const lvBounds = L.latLngBounds([
+      [LAS_VEGAS_BOUNDS.minLat, LAS_VEGAS_BOUNDS.minLng],
+      [LAS_VEGAS_BOUNDS.maxLat, LAS_VEGAS_BOUNDS.maxLng]
     ]);
     // Add a small padding so controls and markers near the edge are visible
-    const paddedBounds = manhattanBounds.pad(0.12);
+    const paddedBounds = lvBounds.pad(0.12);
     // Fit the view and lock panning to the padded bounds
-    mapRef.current.fitBounds(manhattanBounds);
+    mapRef.current.fitBounds(lvBounds);
     mapRef.current.setMaxBounds(paddedBounds);
 
     // Prevent zooming out beyond the bounds: set minZoom to the zoom that fits the padded bounds
@@ -126,8 +126,8 @@ export default function SimulationMap() {
     const handleIncident = (inc) => {
       // add immediately as a colored dot
       addOrUpdateIncident(inc);
-      // then move it to Manhattan by updating backend and updating marker style/position
-      const coords = randomManhattan();
+      // then move it to Las Vegas by updating backend and updating marker style/position
+      const coords = randomLasVegas();
       fetch(`${API_BASE}/api/incidents/${inc.incidentId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -146,8 +146,8 @@ export default function SimulationMap() {
           } else {
             addOrUpdateIncident(updated);
           }
-        }).catch(e => console.error('Failed to move incident to Manhattan', e));
-    };
+        }).catch(e => console.error('Failed to move incident to Las Vegas', e));
+    }; 
     const handleConnect = () => setConnected(true);
     const handleDisconnect = () => setConnected(false);
 
@@ -315,13 +315,13 @@ export default function SimulationMap() {
         // Move each created unit to a random spot in Manhattan
         websocketService.connect().then(() => {
           created.forEach(u => {
-            const coords = randomManhattan();
+            const coords = randomLasVegas();
             websocketService.send('/app/unit.updateLocation', { unitId: u.unitID, latitude: coords.lat, longitude: coords.lng });
           });
         }).catch(() => {
           // fallback: full PUT update (include required fields to avoid nulling)
           created.forEach(u => {
-            const coords = randomManhattan();
+            const coords = randomLasVegas();
             fetch(`${API_BASE}/api/emergency-units/${u.unitID}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
