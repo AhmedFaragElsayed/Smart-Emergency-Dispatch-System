@@ -88,9 +88,14 @@ class WebSocketService {
 
     // Also subscribe to new incident publishes (some controllers use /topic/incidents)
     this.subscribe('/topic/incidents', (message) => {
-      const incident = JSON.parse(message.body);
-      console.log('Received new incident:', incident);
-      this.notifyListeners('incidentAdded', incident);
+      const body = JSON.parse(message.body);
+      if (Array.isArray(body)) {
+        console.log('Received incidents list:', body);
+        this.notifyListeners('incidentsList', body);
+      } else {
+        console.log('Received new incident:', body);
+        this.notifyListeners('incidentAdded', body);
+      }
     });
 
     // Subscribe to emergency unit updates (single unit)
@@ -121,11 +126,25 @@ class WebSocketService {
       this.notifyListeners('locationUpdate', locationUpdate);
     });
 
-    // Subscribe to assignment updates
+    // Subscribe to assignment updates (single assignment)
     this.subscribe('/topic/assignments', (message) => {
       const assignment = JSON.parse(message.body);
       console.log('Received assignment update:', assignment);
       this.notifyListeners('assignmentUpdate', assignment);
+    });
+
+    // Subscribe to assignment list broadcasts (e.g., /topic/assignments/all used by simulation)
+    this.subscribe('/topic/assignments/all', (message) => {
+      const assignments = JSON.parse(message.body);
+      console.log('Received assignments list:', assignments);
+      this.notifyListeners('assignmentsList', assignments);
+    });
+
+    // Subscribe to the standard emergency-units topic used by SimulationService
+    this.subscribe('/topic/emergency-units', (message) => {
+      const units = JSON.parse(message.body);
+      console.log('Received emergency units list:', units);
+      this.notifyListeners('unitsList', units);
     });
 
     // Subscribe to notifications

@@ -148,7 +148,57 @@ export default function SimulationMap() {
             addOrUpdateIncident(updated);
           }
         }).catch(e => console.error('Failed to move incident to Las Vegas', e));
-    }; 
+    };
+
+    // Handle assignment updates (single assignment or list of assignments)
+    const processAssignment = (assignment) => {
+      if (!assignment) return;
+      try {
+        // If the assignment includes the emergencyUnit object, update that unit immediately
+        if (assignment.emergencyUnit) {
+          addOrUpdateUnit({
+            unitID: assignment.emergencyUnit.unitID || assignment.emergencyUnit.unitId || assignment.emergencyUnit.unitID,
+            latitude: assignment.emergencyUnit.latitude,
+            longtitude: assignment.emergencyUnit.longtitude,
+            type: assignment.emergencyUnit.type,
+            status: assignment.emergencyUnit.status
+          });
+        } else if (assignment.unitId || assignment.emergencyUnitId) {
+          // fetch updated unit details if only ID provided
+          const uid = assignment.unitId || assignment.emergencyUnitId;
+          fetch(`${API_BASE}/api/emergency-units/${uid}`).then(r => r.json()).then(u => addOrUpdateUnit(u)).catch(e => console.warn('Failed to fetch unit for assignment update', e));
+        }
+
+        // If the assignment includes incident details, update the incident marker
+        if (assignment.incident) {
+          const inc = {
+            incidentId: assignment.incident.incidentId || assignment.incident.incidentId || assignment.incident.id,
+            type: assignment.incident.type,
+            latitude: assignment.incident.latitude,
+            longtitude: assignment.incident.longtitude || assignment.incident.longitude,
+            severityLevel: assignment.incident.severityLevel || assignment.incident.severity,
+            hasActiveAssignments: assignment.incident.hasActiveAssignments,
+            hasAssignments: assignment.incident.hasAssignments,
+            assignedUnitsCount: assignment.incident.assignedUnitsCount || assignment.incident.totalAssignmentsCount
+          };
+          addOrUpdateIncident(inc);
+        } else if (assignment.incidentId) {
+          // fetch incident details if only id provided
+          fetch(`${API_BASE}/api/incidents/${assignment.incidentId}`).then(r => r.json()).then(i => addOrUpdateIncident(i)).catch(e => console.warn('Failed to fetch incident for assignment update', e));
+        }
+      } catch (e) {
+        console.error('Error processing assignment update', e);
+      }
+    };
+
+    const handleAssignmentUpdate = (assignment) => {
+      if (Array.isArray(assignment)) {
+        assignment.forEach(processAssignment);
+      } else {
+        processAssignment(assignment);
+      }
+    };
+
     const handleConnect = () => setConnected(true);
     const handleDisconnect = () => setConnected(false);
 
@@ -156,7 +206,11 @@ export default function SimulationMap() {
     websocketService.on('unitUpdate', handleUnitUpdate);
     websocketService.on('unitLocation', handleUnitLocation);
     websocketService.on('incidentAdded', handleIncident);
+    const handleIncidentsList = (list) => { if (Array.isArray(list)) list.forEach(addOrUpdateIncident); };
+    websocketService.on('incidentsList', handleIncidentsList);
     websocketService.on('incidentUpdate', handleIncidentUpdate);
+    websocketService.on('assignmentUpdate', handleAssignmentUpdate);
+    websocketService.on('assignmentsList', handleAssignmentUpdate);
     websocketService.on('connected', handleConnect);
     websocketService.on('disconnected', handleDisconnect);
 
@@ -174,7 +228,10 @@ export default function SimulationMap() {
       websocketService.off('unitUpdate', handleUnitUpdate);
       websocketService.off('unitLocation', handleUnitLocation);
       websocketService.off('incidentAdded', handleIncident);
+      websocketService.off('incidentsList', handleIncidentsList);
       websocketService.off('incidentUpdate', handleIncidentUpdate);
+      websocketService.off('assignmentUpdate', handleAssignmentUpdate);
+      websocketService.off('assignmentsList', handleAssignmentUpdate);
       websocketService.off('connected', handleConnect);
       websocketService.off('disconnected', handleDisconnect);
       if (mapRef.current) mapRef.current.remove();
@@ -209,11 +266,14 @@ export default function SimulationMap() {
         newMarker.bindPopup(popup);
         markersRef.current.units.set(id, newMarker);
       }
+      // Dim or highlight marker based on status (busy vs available)
+      if (typeof marker.setOpacity === 'function') marker.setOpacity(unit.status ? 1.0 : 0.5);
       marker.bindPopup(popup);
     } else {
       // Create a marker with a car icon instead of a circle
       const marker = L.marker([lat, lon], { icon: createCarIcon(unit.type) }).addTo(mapRef.current);
       marker.bindPopup(popup);
+      if (typeof marker.setOpacity === 'function') marker.setOpacity(unit.status ? 1.0 : 0.5);
       markersRef.current.units.set(id, marker);
     }
   }
