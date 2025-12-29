@@ -157,7 +157,7 @@ class ApiService {
       if (to) query.append('to', to);
       if (topN) query.append('topN', topN);
       if (heatmapK) query.append('heatmapK', heatmapK);
-      const url = `${API_BASE_URL}/reports/dispatch/pdf${query.toString() ? '?' + query.toString() : ''}`;
+      const url = `${API_BASE_URL}/reports/dispatch/pdf`;
       const response = await fetch(url);
       if (!response.ok) {
         const text = await response.text().catch(() => '');
