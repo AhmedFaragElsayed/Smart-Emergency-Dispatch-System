@@ -1,3 +1,4 @@
+// src/pages/Analytics.jsx
 import React, { useEffect, useState } from 'react';
 import apiService from '../services/apiService';
 import '../styles/Analytics.css';
@@ -12,10 +13,22 @@ import {
   BarElement,
   PointElement,
   LineElement,
+  Title,
   Tooltip,
   Legend,
 } from 'chart.js';
-ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, PointElement, LineElement, Tooltip, Legend);
+
+ChartJS.register(
+  ArcElement,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
 const defaultDate = (d) => d.toISOString().slice(0,10);
 
@@ -34,30 +47,30 @@ const Analytics = () => {
   const [applying, setApplying] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
-  const load = async (params = {}) => {
+  const loadMetrics = async (params = {}) => {
     setLoading(true);
     setError(null);
     try {
       const data = await apiService.fetchDispatchMetrics(params);
       setMetrics(data);
     } catch (err) {
-      setError(err.message || 'Failed to load metrics');
+      setError(err.message || 'Failed to load analytics data');
+      console.error('Error loading metrics:', err);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    load();
+    loadMetrics();
   }, []);
 
   const handleApply = async () => {
     setApplying(true);
-    setError(null);
     try {
-      await load({ from, to, topN, heatmapK });
+      await loadMetrics({ from, to, topN, heatmapK });
     } catch (err) {
-      // handled in load
+      // Error already handled in loadMetrics
     } finally {
       setApplying(false);
     }
@@ -77,56 +90,75 @@ const Analytics = () => {
       window.URL.revokeObjectURL(url);
     } catch (err) {
       setError(err.message || 'Failed to download PDF');
+      console.error('Error downloading PDF:', err);
     } finally {
       setDownloading(false);
     }
   };
 
-  const humanize = (k) => {
+  const humanize = (key) => {
     const map = {
       incidentsByType: 'Incidents by Type',
       incidentsByStatus: 'Incidents by Status',
       incidentsBySeverity: 'Incidents by Severity',
-      avgResolutionDays: 'Average resolution (days)',
-      responseTimeByType: 'Response time by Type',
-      responseTimeByDay: 'Response time by Day',
-      responseTimeByMonth: 'Response time by Month',
-      utilizationRatio: 'Utilization Ratio',
+      avgResolutionDays: 'Average Resolution Time (days)',
+      responseTimeByType: 'Response Time by Type',
+      responseTimeByDay: 'Response Time by Day',
+      responseTimeByMonth: 'Response Time by Month',
+      utilizationRatio: 'Unit Utilization Ratio',
       utilizationByUnitType: 'Utilization by Unit Type',
-      topUnitsByAvgResolution: 'Top Units by Avg Resolution',
+      topUnitsByAvgResolution: 'Top Units by Average Resolution Time',
       topUnitsByAssignmentCount: 'Top Units by Assignment Count',
       incidentsByDay: 'Incidents by Day',
-      incidentHeatmapTop: 'Top Hotspots',
+      incidentHeatmapTop: 'Incident Hotspots',
     };
-    return map[k] || k;
+    return map[key] || key;
   };
 
   const renderArray = (arr) => {
-    if (!Array.isArray(arr) || arr.length === 0) return <p className="muted">No data</p>;
-    if (arr.every(a => typeof a !== 'object' || a === null)) {
+    if (!Array.isArray(arr) || arr.length === 0) {
+      return <div className="no-data">No data available</div>;
+    }
+
+    // Check if array contains simple values
+    if (arr.every(item => typeof item !== 'object' || item === null)) {
       return (
-        <ul className="simple-list">
-          {arr.map((v, i) => <li key={i}>{String(v)}</li>)}
-        </ul>
+        <div className="simple-list">
+          {arr.map((item, index) => (
+            <div key={index} className="list-item">{String(item)}</div>
+          ))}
+        </div>
       );
     }
-    const columns = Array.from(arr.reduce((set, obj) => {
-      if (obj && typeof obj === 'object') Object.keys(obj).forEach(k => set.add(k));
-      return set;
-    }, new Set()));
+
+    // Array of objects - create a table
+    const columns = Array.from(
+      arr.reduce((set, obj) => {
+        if (obj && typeof obj === 'object') {
+          Object.keys(obj).forEach(key => set.add(key));
+        }
+        return set;
+      }, new Set())
+    );
 
     return (
-      <div className="table-wrap">
+      <div className="table-container">
         <table className="analytics-table">
           <thead>
             <tr>
-              {columns.map(c => <th key={c}>{c}</th>)}
+              {columns.map(col => (
+                <th key={col}>{col.charAt(0).toUpperCase() + col.slice(1)}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {arr.map((row, i) => (
-              <tr key={i}>
-                {columns.map(c => <td key={c}>{row && row[c] !== undefined ? String(row[c]) : ''}</td>)}
+            {arr.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {columns.map(col => (
+                  <td key={col}>
+                    {row && row[col] !== undefined ? String(row[col]) : '-'}
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>
@@ -137,11 +169,12 @@ const Analytics = () => {
 
   const renderMetric = (key, value) => {
     const title = humanize(key);
+
     if (value === null || value === undefined) {
       return (
         <div className="analytics-section" key={key}>
           <h3>{title}</h3>
-          <p className="muted">N/A</p>
+          <div className="metric-value">N/A</div>
         </div>
       );
     }
@@ -159,7 +192,9 @@ const Analytics = () => {
       return (
         <div className="analytics-card" key={key}>
           <h3>{title}</h3>
-          <p className="big-number">{Number.isFinite(value) ? value.toFixed(2) : String(value)}</p>
+          <div className="big-number">
+            {Number.isFinite(value) ? value.toFixed(2) : String(value)}
+          </div>
         </div>
       );
     }
@@ -168,10 +203,13 @@ const Analytics = () => {
       return (
         <div className="analytics-section" key={key}>
           <h3>{title}</h3>
-          <table className="analytics-table">
+          <table className="key-value-table">
             <tbody>
               {Object.entries(value).map(([k, v]) => (
-                <tr key={k}><td>{k}</td><td>{String(v)}</td></tr>
+                <tr key={k}>
+                  <td>{k}</td>
+                  <td>{String(v)}</td>
+                </tr>
               ))}
             </tbody>
           </table>
@@ -182,7 +220,7 @@ const Analytics = () => {
     return (
       <div className="analytics-section" key={key}>
         <h3>{title}</h3>
-        <p>{String(value)}</p>
+        <div className="metric-value">{String(value)}</div>
       </div>
     );
   };
@@ -193,27 +231,44 @@ const Analytics = () => {
     return {
       labels: arr.map(r => r.type),
       datasets: [{
-        data: arr.map(r => Number(r.cnt) || 0),
-        backgroundColor: ['#667eea', '#f6ad55', '#fc8181', '#48bb78', '#38bdf8', '#a78bfa'],
+        data: arr.map(r => Number(r.count || r.value || r.cnt) || 0),
+        backgroundColor: [
+          '#667eea', '#f6ad55', '#fc8181', '#48bb78', 
+          '#38bdf8', '#a78bfa', '#f87171', '#34d399'
+        ],
       }]
     };
   };
 
   const buildBarData = () => {
     const arr = metrics?.incidentsByDay || [];
-    const sorted = arr.slice().sort((a,b) => String(a.day).localeCompare(String(b.day)));
+    const sorted = [...arr].sort((a, b) => 
+      String(a.day || a.date).localeCompare(String(b.day || b.date))
+    );
     return {
-      labels: sorted.map(r => r.day),
-      datasets: [{ label: 'Incidents', data: sorted.map(r => Number(r.cnt) || 0), backgroundColor: '#667eea' }]
+      labels: sorted.map(r => r.day || r.date),
+      datasets: [{
+        label: 'Incidents',
+        data: sorted.map(r => Number(r.count || r.value || r.cnt) || 0),
+        backgroundColor: '#667eea'
+      }]
     };
   };
 
   const buildLineData = () => {
     const arr = metrics?.responseTimeByDay || [];
-    const sorted = arr.slice().sort((a,b) => String(a.day).localeCompare(String(b.day)));
+    const sorted = [...arr].sort((a, b) => 
+      String(a.day || a.date).localeCompare(String(b.day || b.date))
+    );
     return {
-      labels: sorted.map(r => r.day),
-      datasets: [{ label: 'Avg resolution (days)', data: sorted.map(r => Number(r.avgDays) || 0), borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.1)', tension: 0.2 }]
+      labels: sorted.map(r => r.day || r.date),
+      datasets: [{
+        label: 'Avg resolution (days)',
+        data: sorted.map(r => Number(r.avgDays || r.value || r.avg) || 0),
+        borderColor: '#f97316',
+        backgroundColor: 'rgba(249,115,22,0.1)',
+        tension: 0.2
+      }]
     };
   };
 
@@ -223,14 +278,58 @@ const Analytics = () => {
         <h1>Dispatch Analytics</h1>
         <div className="actions">
           <div className="filters">
-            <label className="filter-group">From <input type="date" value={from} onChange={e => setFrom(e.target.value)} /></label>
-            <label className="filter-group">To <input type="date" value={to} onChange={e => setTo(e.target.value)} /></label>
-            <label className="filter-group">Top N <input type="number" min="1" max="50" value={topN} onChange={e => setTopN(Number(e.target.value))} /></label>
-            <label className="filter-group">Heatmap K <input type="number" min="1" max="200" value={heatmapK} onChange={e => setHeatmapK(Number(e.target.value))} /></label>
-            <button className="primary-btn" onClick={handleApply} disabled={applying}>{applying ? 'Applying...' : 'Apply'}</button>
+            <label className="filter-group">
+              From 
+              <input 
+                type="date" 
+                value={from} 
+                onChange={e => setFrom(e.target.value)} 
+              />
+            </label>
+            <label className="filter-group">
+              To 
+              <input 
+                type="date" 
+                value={to} 
+                onChange={e => setTo(e.target.value)} 
+              />
+            </label>
+            <label className="filter-group">
+              Top N 
+              <input 
+                type="number" 
+                min="1" 
+                max="50" 
+                value={topN} 
+                onChange={e => setTopN(Number(e.target.value))} 
+              />
+            </label>
+            <label className="filter-group">
+              Heatmap K 
+              <input 
+                type="number" 
+                min="1" 
+                max="200" 
+                value={heatmapK} 
+                onChange={e => setHeatmapK(Number(e.target.value))} 
+              />
+            </label>
+            <button 
+              className="primary-btn" 
+              onClick={handleApply} 
+              disabled={applying}
+            >
+              {applying ? 'Applying...' : 'Apply'}
+            </button>
           </div>
           <div className="export">
-            <button className="secondary-btn" onClick={handleDownloadPdf} disabled={downloading}>{downloading ? 'Downloading...' : 'Export PDF'}</button>
+            <button 
+              className="secondary-btn" 
+              onClick={handleDownloadPdf} 
+              disabled={downloading}
+            >
+              {downloading ? 'Downloading...' : 'Export PDF'}
+            </button>
           </div>
         </div>
       </div>
@@ -241,30 +340,58 @@ const Analytics = () => {
           <p>Loading analytics…</p>
         </div>
       ) : error ? (
-        <div className="error">{error}</div>
-      ) : (
+        <div className="error-alert">
+          <span>⚠️ {error}</span>
+        </div>
+      ) : metrics ? (
         <>
           <div className="charts-row">
             <div className="chart-card">
               <h3>Incidents by Type</h3>
-              <Pie data={buildPieData()} />
+              <div className="chart-wrapper">
+                <Pie data={buildPieData()} />
+              </div>
             </div>
 
             <div className="chart-card">
               <h3>Incidents by Day</h3>
-              <Bar data={buildBarData()} options={{responsive:true, plugins:{legend:{display:false}}}} />
+              <div className="chart-wrapper">
+                <Bar 
+                  data={buildBarData()} 
+                  options={{
+                    responsive: true,
+                    plugins: { legend: { display: false } }
+                  }} 
+                />
+              </div>
             </div>
 
             <div className="chart-card">
               <h3>Avg Resolution by Day</h3>
-              <Line data={buildLineData()} options={{responsive:true, plugins:{legend:{display:false}}}} />
+              <div className="chart-wrapper">
+                <Line 
+                  data={buildLineData()} 
+                  options={{
+                    responsive: true,
+                    plugins: { legend: { display: false } }
+                  }} 
+                />
+              </div>
             </div>
           </div>
 
           <div className="analytics-grid">
-            {Object.keys(metrics).map(k => renderMetric(k, metrics[k]))}
+            {Object.entries(metrics).map(([key, value]) => (
+              <div key={key}>
+                {renderMetric(key, value)}
+              </div>
+            ))}
           </div>
         </>
+      ) : (
+        <div className="no-data">
+          <p>No analytics data available. Try adjusting your filters.</p>
+        </div>
       )}
     </div>
   );

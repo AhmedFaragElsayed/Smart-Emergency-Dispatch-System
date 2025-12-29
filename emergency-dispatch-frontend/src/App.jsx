@@ -1,4 +1,5 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+// src/App.jsx
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { useEffect } from 'react';
 import AdminDashboard from './pages/adminDashboard';
 import AdminPortal from './pages/AdminPortal';
@@ -10,7 +11,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import websocketService from './services/websocketService';
 import './App.css';
-import SigninPage from "./components/SigninPage"
+import SigninPage from "./components/SigninPage";
 
 function AppContent() {
   const { user } = useAuth();
@@ -18,13 +19,18 @@ function AppContent() {
   useEffect(() => {
     // Only connect if user is authenticated
     if (user) {
+      console.log('User authenticated, connecting WebSocket...');
       websocketService.connect().catch(err => {
         console.error('Failed to connect to WebSocket:', err);
       });
+    } else {
+      console.log('User not authenticated, disconnecting WebSocket...');
+      websocketService.disconnect();
     }
 
     return () => {
-      // Don't disconnect on unmount - keep connection alive
+      // Clean up on unmount
+      websocketService.disconnect();
     };
   }, [user]);
 
@@ -74,4 +80,5 @@ function App() {
     </AuthProvider>
   );
 }
+
 export default App;

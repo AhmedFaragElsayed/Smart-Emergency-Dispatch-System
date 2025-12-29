@@ -1,298 +1,332 @@
+// src/services/websocketService.js
 import SockJS from 'sockjs-client';
 import { Client } from '@stomp/stompjs';
 
-// WebSocket service for real-time incident management using STOMP
 class WebSocketService {
   constructor() {
-    this.stompClient = null;
-    this.connected = false;
-    this.listeners = new Map();
+    this.client = null;
     this.subscriptions = new Map();
-    this.connecting = false; // Track if connection is in progress
-    this.notifications = []; // Store notifications persistently
-    this.readNotificationIds = new Set(); // Track read notifications
+    this.notifications = [];
+    this.connectPromise = null;
+    this.isConnected = false;
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 5;
   }
 
-  connect(url = 'http://localhost:9696/ws') {
-    // If already connected or connecting, return existing promise
-    if (this.connected) {
-      console.log('WebSocket already connected');
-      return Promise.resolve();
-    }
-    
-    if (this.connecting) {
-      console.log('WebSocket connection already in progress');
+  connect() {
+    if (this.connectPromise) {
       return this.connectPromise;
     }
 
-    this.connecting = true;
     this.connectPromise = new Promise((resolve, reject) => {
-      try {
-        // Create a SockJS connection
-        const socket = new SockJS(url);
-        
-        // Create STOMP client
-        this.stompClient = new Client({
-          webSocketFactory: () => socket,
-          debug: (str) => {
-            console.log('STOMP Debug:', str);
-          },
-          reconnectDelay: 5000,
-          heartbeatIncoming: 4000,
-          heartbeatOutgoing: 4000,
-        });
-
-        this.stompClient.onConnect = () => {
-          console.log('WebSocket connected via STOMP');
-          this.connected = true;
-          this.connecting = false;
-          this.notifyListeners('connected', { status: 'connected' });
-          
-          // Subscribe to topics
-          this.subscribeToTopics();
-          resolve();
-        };
-
-        this.stompClient.onStompError = (frame) => {
-          console.error('STOMP error:', frame);
-          this.connecting = false;
-          this.notifyListeners('error', { error: frame });
-          reject(frame);
-        };
-
-        this.stompClient.onWebSocketClose = () => {
-          console.log('WebSocket disconnected');
-          this.connected = false;
-          this.connecting = false;
-          this.notifyListeners('disconnected', { status: 'disconnected' });
-        };
-
-        this.stompClient.activate();
-      } catch (error) {
-        console.error('Error connecting to WebSocket:', error);
-        this.connecting = false;
-        reject(error);
+      if (this.client && this.client.active) {
+        this.isConnected = true;
+        resolve();
+        return;
       }
+
+      this.client = new Client({
+        webSocketFactory: () => new SockJS('http://localhost:9696/ws'),
+        reconnectDelay: 5000,
+        heartbeatIncoming: 4000,
+        heartbeatOutgoing: 4000,
+        
+        onConnect: () => {
+          console.log('✅ WebSocket connected successfully');
+          this.isConnected = true;
+          this.reconnectAttempts = 0;
+          this.emit('connected');
+          
+          // Subscribe to default topics
+          this.subscribeToTopics();
+          
+          resolve();
+        },
+        
+        onStompError: (frame) => {
+          console.error('❌ WebSocket STOMP error:', frame);
+          this.emit('error', frame);
+          this.reconnectAttempts++;
+          
+          if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            reject(new Error('Max reconnection attempts reached'));
+          } else {
+            reject(frame);
+          }
+        },
+        
+        onDisconnect: () => {
+          console.log('🔌 WebSocket disconnected');
+          this.isConnected = false;
+          this.subscriptions.clear();
+          this.emit('disconnected');
+        },
+        
+        onWebSocketError: (error) => {
+          console.error('❌ WebSocket connection error:', error);
+          this.emit('error', error);
+        }
+      });
+
+      this.client.activate();
     });
-    
+
     return this.connectPromise;
   }
 
   subscribeToTopics() {
-    // Subscribe to incident updates (individual / incremental)
-    this.subscribe('/topic/incidents-monitor/update', (message) => {
-      const incident = JSON.parse(message.body);
-      console.log('Received incident update:', incident);
-      this.notifyListeners('incidentUpdate', incident);
-    });
-
-    // Subscribe to enriched incidents list published by IncidentMonitorService
-    this.subscribe('/topic/incidents-monitor', (message) => {
-      const body = JSON.parse(message.body);
-      if (Array.isArray(body)) {
-        console.log('Received enriched incidents list:', body);
-        this.notifyListeners('incidentsMonitorList', body);
+    // Unit updates
+    this.subscribe('/topic/unitUpdate', (message) => {
+      try {
+        const unit = JSON.parse(message.body);
+        console.log('📡 Received unit update:', unit);
+        this.emit('unitUpdate', unit);
+      } catch (error) {
+        console.error('Error parsing unit update:', error);
       }
     });
 
-    // Also subscribe to new incident publishes (some controllers use /topic/incidents)
-    this.subscribe('/topic/incidents', (message) => {
-      const body = JSON.parse(message.body);
-      if (Array.isArray(body)) {
-        console.log('Received incidents list:', body);
-        this.notifyListeners('incidentsList', body);
-      } else {
-        console.log('Received new incident:', body);
-        this.notifyListeners('incidentAdded', body);
+    // Unit locations
+    this.subscribe('/topic/unitLocation', (message) => {
+      try {
+        const location = JSON.parse(message.body);
+        console.log('📍 Received unit location:', location);
+        this.emit('unitLocation', location);
+      } catch (error) {
+        console.error('Error parsing unit location:', error);
       }
     });
 
-    // Subscribe to emergency unit updates (single unit)
-    this.subscribe('/topic/units-monitor/update', (message) => {
-      const unit = JSON.parse(message.body);
-      console.log('Received unit update:', unit);
-      this.notifyListeners('unitUpdate', unit);
+    // Unit lists
+    this.subscribe('/topic/unitsList', (message) => {
+      try {
+        const units = JSON.parse(message.body);
+        console.log('📋 Received units list:', units.length, 'units');
+        this.emit('unitsList', units);
+      } catch (error) {
+        console.error('Error parsing units list:', error);
+      }
     });
 
-    // Subscribe to full units list broadcasts
-    this.subscribe('/topic/units-monitor', (message) => {
-      const units = JSON.parse(message.body);
-      console.log('Received full units list:', units);
-      this.notifyListeners('unitsList', units);
+    // Incident updates
+    this.subscribe('/topic/incidentUpdate', (message) => {
+      try {
+        const incident = JSON.parse(message.body);
+        console.log('🚨 Received incident update:', incident);
+        this.emit('incidentUpdate', incident);
+      } catch (error) {
+        console.error('Error parsing incident update:', error);
+      }
     });
 
-    // Subscribe to location updates (backend uses /topic/unit-location)
-    this.subscribe('/topic/unit-location', (message) => {
-      const locationUpdate = JSON.parse(message.body);
-      console.log('Received unit location update:', locationUpdate);
-      this.notifyListeners('unitLocation', locationUpdate);
+    // New incidents
+    this.subscribe('/topic/incidentAdded', (message) => {
+      try {
+        const incident = JSON.parse(message.body);
+        console.log('🆕 New incident added:', incident);
+        this.emit('incidentAdded', incident);
+      } catch (error) {
+        console.error('Error parsing new incident:', error);
+      }
     });
 
-    // Keep older location-updates subscription name (if used elsewhere)
-    this.subscribe('/topic/location-updates', (message) => {
-      const locationUpdate = JSON.parse(message.body);
-      console.log('Received location update (legacy topic):', locationUpdate);
-      this.notifyListeners('locationUpdate', locationUpdate);
+    // Incident lists
+    this.subscribe('/topic/incidentsList', (message) => {
+      try {
+        const incidents = JSON.parse(message.body);
+        console.log('📊 Received incidents list:', incidents.length, 'incidents');
+        this.emit('incidentsList', incidents);
+      } catch (error) {
+        console.error('Error parsing incidents list:', error);
+      }
     });
 
-    // Subscribe to assignment updates (single assignment)
-    this.subscribe('/topic/assignments', (message) => {
-      const assignment = JSON.parse(message.body);
-      console.log('Received assignment update:', assignment);
-      this.notifyListeners('assignmentUpdate', assignment);
+    // Monitor incidents
+    this.subscribe('/topic/incidentsMonitorList', (message) => {
+      try {
+        const incidents = JSON.parse(message.body);
+        console.log('📈 Received monitor incidents:', incidents.length, 'incidents');
+        this.emit('incidentsMonitorList', incidents);
+      } catch (error) {
+        console.error('Error parsing monitor incidents:', error);
+      }
     });
 
-    // Subscribe to assignment list broadcasts (e.g., /topic/assignments/all used by simulation)
-    this.subscribe('/topic/assignments/all', (message) => {
-      const assignments = JSON.parse(message.body);
-      console.log('Received assignments list:', assignments);
-      this.notifyListeners('assignmentsList', assignments);
+    // Assignment updates
+    this.subscribe('/topic/assignmentUpdate', (message) => {
+      try {
+        const assignment = JSON.parse(message.body);
+        console.log('📝 Received assignment update:', assignment);
+        this.emit('assignmentUpdate', assignment);
+      } catch (error) {
+        console.error('Error parsing assignment update:', error);
+      }
     });
 
-    // Subscribe to the standard emergency-units topic used by SimulationService
-    this.subscribe('/topic/emergency-units', (message) => {
-      const units = JSON.parse(message.body);
-      console.log('Received emergency units list:', units);
-      this.notifyListeners('unitsList', units);
+    // Assignment lists
+    this.subscribe('/topic/assignmentsList', (message) => {
+      try {
+        const assignments = JSON.parse(message.body);
+        console.log('📑 Received assignments list:', assignments.length, 'assignments');
+        this.emit('assignmentsList', assignments);
+      } catch (error) {
+        console.error('Error parsing assignments list:', error);
+      }
     });
 
-    // Subscribe to notifications
+    // Notifications
     this.subscribe('/topic/notifications', (message) => {
-      const notification = JSON.parse(message.body);
-      console.log('Received notification:', notification);
-      
-      // Store notification persistently
-      this.notifications.unshift(notification);
-      
-      // Notify all listeners
-      this.notifyListeners('notification', notification);
+      try {
+        const notification = JSON.parse(message.body);
+        console.log('🔔 Received notification:', notification);
+        this.handleNotification(notification);
+      } catch (error) {
+        console.error('Error parsing notification:', error);
+      }
     });
 
-    // Subscribe to location updates
-    this.subscribe('/topic/location-updates', (message) => {
-      const locationUpdate = JSON.parse(message.body);
-      console.log('Received location update:', locationUpdate);
-      this.notifyListeners('locationUpdate', locationUpdate);
+    // Simulation status
+    this.subscribe('/topic/simulation', (message) => {
+      const status = message.body;
+      console.log('🎮 Simulation status:', status);
+      this.emit('simulationStatus', status);
     });
   }
 
-  subscribe(topic, callback) {
-    if (this.stompClient && this.connected) {
-      const subscription = this.stompClient.subscribe(topic, callback);
-      this.subscriptions.set(topic, subscription);
-      console.log(`Subscribed to ${topic}`);
+  subscribe(destination, callback) {
+    if (!this.client || !this.client.connected) {
+      console.error('Cannot subscribe: WebSocket not connected');
+      return null;
+    }
+
+    try {
+      const subscription = this.client.subscribe(destination, callback);
+      this.subscriptions.set(destination, subscription);
+      console.log(`✅ Subscribed to ${destination}`);
+      return subscription;
+    } catch (error) {
+      console.error(`Error subscribing to ${destination}:`, error);
+      return null;
     }
   }
 
-  unsubscribe(topic) {
-    if (this.subscriptions.has(topic)) {
-      this.subscriptions.get(topic).unsubscribe();
-      this.subscriptions.delete(topic);
-      console.log(`Unsubscribed from ${topic}`);
+  unsubscribe(destination) {
+    const subscription = this.subscriptions.get(destination);
+    if (subscription) {
+      subscription.unsubscribe();
+      this.subscriptions.delete(destination);
+      console.log(`✅ Unsubscribed from ${destination}`);
     }
   }
 
-  send(destination, payload) {
-    if (this.stompClient && this.connected) {
-      this.stompClient.publish({
-        destination: destination,
-        body: JSON.stringify(payload)
+  send(destination, body) {
+    if (!this.client || !this.client.connected) {
+      console.error('Cannot send: WebSocket not connected');
+      return false;
+    }
+
+    try {
+      this.client.publish({
+        destination,
+        body: JSON.stringify(body)
       });
-      console.log(`Sent message to ${destination}:`, payload);
-    } else {
-      console.error('WebSocket is not connected');
+      console.log(`📤 Sent message to ${destination}:`, body);
+      return true;
+    } catch (error) {
+      console.error(`Error sending to ${destination}:`, error);
+      return false;
     }
   }
 
-  // Send a notification
-  sendNotification(notification) {
-    this.send('/app/notification', notification);
-  }
-
-  // Update location
-  updateLocation(locationUpdate) {
-    this.send('/app/location-update', locationUpdate);
-  }
-
-  // Subscribe to events
-  on(event, callback) {
-    if (!this.listeners.has(event)) {
-      this.listeners.set(event, []);
-    }
-    this.listeners.get(event).push(callback);
-  }
-
-  // Unsubscribe from events
-  off(event, callback) {
-    if (this.listeners.has(event)) {
-      const callbacks = this.listeners.get(event).filter(cb => cb !== callback);
-      this.listeners.set(event, callbacks);
-    }
-  }
-
-  // Notify all listeners of an event
-  notifyListeners(event, data) {
-    if (this.listeners.has(event)) {
-      this.listeners.get(event).forEach(callback => callback(data));
-    }
-  }
-
-  // Close WebSocket connection
   disconnect() {
-    if (this.stompClient) {
-      this.stompClient.deactivate();
-      this.stompClient = null;
-      this.connected = false;
-      this.connecting = false;
+    if (this.client) {
+      this.subscriptions.clear();
+      this.client.deactivate();
+      this.client = null;
+      this.connectPromise = null;
+      this.isConnected = false;
+      console.log('🔌 WebSocket disconnected');
     }
   }
 
-  // Get connection status
-  isConnected() {
-    return this.connected;
+  // Event emitter pattern
+  events = new Map();
+
+  on(event, callback) {
+    if (!this.events.has(event)) {
+      this.events.set(event, new Set());
+    }
+    this.events.get(event).add(callback);
   }
 
-  // Get all stored notifications
-  getNotifications() {
+  off(event, callback) {
+    if (this.events.has(event)) {
+      this.events.get(event).delete(callback);
+    }
+  }
+
+  emit(event, data) {
+    if (this.events.has(event)) {
+      this.events.get(event).forEach(callback => {
+        try {
+          callback(data);
+        } catch (error) {
+          console.error(`Error in ${event} callback:`, error);
+        }
+      });
+    }
+  }
+
+  // Notification handling
+  handleNotification(notificationData) {
+    let notification;
+    
+    if (typeof notificationData === 'string') {
+      // Simple string notification
+      notification = {
+        id: Date.now(),
+        message: notificationData,
+        notificationTime: new Date().toISOString(),
+        isRead: false
+      };
+    } else {
+      // Full notification object
+      notification = {
+        ...notificationData,
+        id: notificationData.notificationId || Date.now()
+      };
+    }
+
+    this.notifications.unshift(notification);
+    this.emit('notification', notification);
+  }
+
+  getNotifications(userId = null) {
+    if (userId) {
+      return this.notifications.filter(n => 
+        n.user && (n.user.userID === userId || n.user.userID === parseInt(userId))
+      );
+    }
     return this.notifications;
   }
 
-  // Clear all notifications
-  clearNotifications() {
-    this.notifications = [];
-  }
-
-  // Remove a specific notification
   removeNotification(index) {
-    this.notifications.splice(index, 1);
+    if (index >= 0 && index < this.notifications.length) {
+      this.notifications.splice(index, 1);
+    }
   }
 
-  // Mark notification as read
-  markAsRead(notificationId) {
-    this.readNotificationIds.add(notificationId);
+  markAllAsRead(notificationIds = []) {
+    this.notifications.forEach(notification => {
+      if (notificationIds.length === 0 || notificationIds.includes(notification.id)) {
+        notification.isRead = true;
+      }
+    });
   }
 
-  // Mark all notifications as read
-  markAllAsRead(notificationIds) {
-    notificationIds.forEach(id => this.readNotificationIds.add(id));
-  }
-
-  // Check if notification is read
-  isNotificationRead(notificationId) {
-    return this.readNotificationIds.has(notificationId);
-  }
-
-  // Get unread count for a user
   getUnreadCount(userId) {
-    return this.notifications.filter(n => 
-      n.user && 
-      (n.user.userID === userId || n.user.userID === parseInt(userId)) &&
-      n.notificationId &&
-      !this.readNotificationIds.has(n.notificationId)
-    ).length;
+    return this.getNotifications(userId).filter(n => !n.isRead).length;
   }
 }
 
-// Export singleton instance
-const websocketService = new WebSocketService();
-export default websocketService;
+export default new WebSocketService();
