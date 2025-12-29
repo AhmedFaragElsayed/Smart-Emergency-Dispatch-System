@@ -41,6 +41,13 @@ function AdminDashBoard() {
           <button className="nav-button">Go to Admin Portal →</button>
         </div>
         
+        <div className="nav-card" onClick={() => navigate('/simulation')}>
+          <div className="nav-card-icon">🗺️</div>
+          <h2>Simulation Map</h2>
+          <p>View real-time simulation of emergency incidents</p>
+          <button className="nav-button">Go to Simulation Map →</button>
+        </div>
+        
         <div className="nav-card" onClick={() => navigate('/units')}>
           <div className="nav-card-icon">🚑</div>
           <h2>Unit Dashboard</h2>
