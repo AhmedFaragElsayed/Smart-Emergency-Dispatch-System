@@ -12,6 +12,8 @@
   "dependencies": {
     "@stomp/stompjs": "^7.0.0",
     "axios": "^1.13.2",
+    "chart.js": "^4.4.0",
+    "react-chartjs-2": "^5.2.1",
     "leaflet": "^1.9.4",
     "prop-types": "^15.8.1",
     "react": "^19.2.0",
