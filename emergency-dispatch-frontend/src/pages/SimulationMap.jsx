@@ -34,6 +34,11 @@ function randomLasVegas() {
 export default function SimulationMap() {
   const mapRef = useRef(null);
   const markersRef = useRef({ units: new Map(), incidents: new Map() });
+  const polylinesRef = useRef(new Map()); // Store polylines for unit routes
+  const routePathsRef = useRef(new Map()); // Store full route paths for each unit
+  const isGeneratingUnitsRef = useRef(false); // Suppress sim-activity during manual unit generation
+  const generatedTargetsRef = useRef(new Map()); // Track desired locations for newly-generated units (to avoid visual jitter)
+
   const [connected, setConnected] = useState(websocketService.isConnected());
   const [unitCount, setUnitCount] = useState(3);
   const navigate = useNavigate();
@@ -134,6 +139,8 @@ export default function SimulationMap() {
     const handleUnitUpdate = (unit) => addOrUpdateUnit(unit);
     const handleUnitLocation = (update) => {
       addOrUpdateUnit({ unitID: update.unitId, latitude: update.latitude, longtitude: update.longtitude, type: update.type, status: update.status });
+      // Update the route polyline to show only remaining path
+      updateRoutePolyline(update.unitId, update.latitude, update.longtitude);
     };
     const handleIncident = (inc) => {
       // Place the incident directly at a Las Vegas coordinate to avoid visual flicker.
@@ -258,7 +265,11 @@ export default function SimulationMap() {
     const handleConnect = () => setConnected(true);
     const handleDisconnect = () => setConnected(false);
 
-    const bumpSimActivity = () => { lastSimActivityRef.current = Date.now(); };
+    const bumpSimActivity = () => {
+      // Ignore activity triggered by manual unit generation to avoid falsely marking sim as running
+      if (isGeneratingUnitsRef.current) return;
+      lastSimActivityRef.current = Date.now();
+    };
 
     // Wrap certain handlers to also mark simulation activity
     const handleUnitsListWithActivity = (units) => { bumpSimActivity(); handleUnitsList(units); };
@@ -267,7 +278,6 @@ export default function SimulationMap() {
     // When a raw incidents list is received from the simulation, request the enriched incident view
     // (includes active assignment counts and status) and apply it atomically to the map.
     const handleIncidentsList = async (list) => {
-      bumpSimActivity();
       try {
         const res = await fetch(`${API_BASE}/api/monitor/incidents`);
         if (res.ok) {
@@ -281,15 +291,103 @@ export default function SimulationMap() {
       }
     };
 
-    websocketService.on('unitsList', handleUnitsListWithActivity);
+    // Handle unit route path visualization
+    const handleUnitRoute = (routeData) => {
+      if (!routeData || !routeData.unitId || !routeData.path) return;
+      
+      const unitId = routeData.unitId;
+      const incidentType = routeData.incidentType;
+      const pathCoordinates = routeData.path;
+      
+      // Remove existing polyline if it exists
+      if (polylinesRef.current.has(unitId)) {
+        try {
+          mapRef.current.removeLayer(polylinesRef.current.get(unitId));
+        } catch (e) { /* ignore */ }
+      }
+      
+      // Create polyline for the route
+      if (Array.isArray(pathCoordinates) && pathCoordinates.length > 0) {
+        // Convert path coordinates to Leaflet LatLng format
+        const latLngs = pathCoordinates.map(coord => [coord[0], coord[1]]);
+        
+        // Get the color based on incident type (same as incident marker color)
+        let routeColor = '#3388ff'; // default blue
+        if (incidentType) {
+          const type = incidentType.toString().toUpperCase();
+          if (type.includes('FIRE')) routeColor = '#ff0000';
+          else if (type.includes('POLICE')) routeColor = '#0000ff';
+          else if (type.includes('AMBULANCE')) routeColor = '#00aa00';
+        }
+        
+        const polyline = L.polyline(latLngs, {
+          color: routeColor,
+          weight: 3,
+          opacity: 0.7,
+          dashArray: '5, 5'
+        }).addTo(mapRef.current);
+        
+        // Add a popup showing the route info
+        polyline.bindPopup(`<strong>Unit #${unitId} Route</strong><br/>Type: ${incidentType}<br/>Waypoints: ${latLngs.length}`);
+        
+        polylinesRef.current.set(unitId, polyline);
+        routePathsRef.current.set(unitId, latLngs); // Store full path for dynamic updates
+        console.log('[SimulationMap] Route polyline added for Unit', unitId, 'with', latLngs.length, 'points');
+      }
+    };
+
+    // Update polyline as unit moves along the route
+    const updateRoutePolyline = (unitId, currentLat, currentLon) => {
+      const fullPath = routePathsRef.current.get(unitId);
+      const existingPolyline = polylinesRef.current.get(unitId);
+      
+      if (!fullPath || !existingPolyline || fullPath.length === 0) return;
+      
+      // Find the closest waypoint to the current unit position (start of remaining path)
+      let closestIndex = 0;
+      let closestDistance = Number.MAX_VALUE;
+      
+      for (let i = 0; i < fullPath.length; i++) {
+        const waypoint = fullPath[i];
+        const distance = Math.pow(waypoint[0] - currentLat, 2) + Math.pow(waypoint[1] - currentLon, 2);
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestIndex = i;
+        }
+      }
+      
+      // Create remaining path starting from current position and continuing forward
+      const remainingPath = fullPath.slice(closestIndex);
+      
+      // If we've reached the end of the route, remove the polyline
+      if (remainingPath.length <= 1) {
+        try {
+          mapRef.current.removeLayer(existingPolyline);
+        } catch (e) { /* ignore */ }
+        polylinesRef.current.delete(unitId);
+        routePathsRef.current.delete(unitId);
+        console.log('[SimulationMap] Route completed for Unit', unitId);
+        return;
+      }
+      
+      // Update polyline with remaining path
+      existingPolyline.setLatLngs(remainingPath);
+      console.log('[SimulationMap] Route updated for Unit', unitId, '- remaining waypoints:', remainingPath.length);
+    };
+
+
+    // Full list broadcasts (units/incidents/assignments) are not treated as simulation activity
+    // so refreshing or connecting legacy test pages doesn't flip the simulation badge.
+    websocketService.on('unitsList', handleUnitsList);
     websocketService.on('unitUpdate', (u) => { bumpSimActivity(); handleUnitUpdate(u); });
     websocketService.on('unitLocation', (loc) => { bumpSimActivity(); handleUnitLocation(loc); });
-    websocketService.on('incidentAdded', (inc) => { bumpSimActivity(); handleIncident(inc); });
+    websocketService.on('unitRoute', (route) => { bumpSimActivity(); handleUnitRoute(route); });
+    websocketService.on('incidentAdded', (inc) => { handleIncident(inc); });
     websocketService.on('incidentsList', handleIncidentsList);
-    websocketService.on('incidentsMonitorList', (list) => { bumpSimActivity(); if (Array.isArray(list)) applyEnrichedIncidents(list); });
-    websocketService.on('incidentUpdate', (i) => { bumpSimActivity(); handleIncidentUpdate(i); });
-    websocketService.on('assignmentUpdate', handleAssignmentUpdateWithActivity);
-    websocketService.on('assignmentsList', handleAssignmentsListWithActivity);
+    websocketService.on('incidentsMonitorList', (list) => { if (Array.isArray(list)) applyEnrichedIncidents(list); });
+    websocketService.on('incidentUpdate', (i) => { handleIncidentUpdate(i); });
+    websocketService.on('assignmentUpdate', (a) => { bumpSimActivity(); handleAssignmentUpdate(a); });
+    websocketService.on('assignmentsList', (list) => { handleAssignmentUpdate(list); });
     websocketService.on('connected', handleConnect);
     websocketService.on('disconnected', handleDisconnect);
 
@@ -319,6 +417,7 @@ export default function SimulationMap() {
       websocketService.off('unitsList', handleUnitsListWithActivity);
       websocketService.off('unitUpdate');
       websocketService.off('unitLocation');
+      websocketService.off('unitRoute');
       websocketService.off('incidentAdded');
       websocketService.off('incidentsList', handleIncidentsList);
       websocketService.off('incidentsMonitorList');
@@ -327,6 +426,12 @@ export default function SimulationMap() {
       websocketService.off('assignmentsList', handleAssignmentsListWithActivity);
       websocketService.off('connected', handleConnect);
       websocketService.off('disconnected', handleDisconnect);
+      // Clean up polylines
+      polylinesRef.current.forEach((polyline) => {
+        try { mapRef.current.removeLayer(polyline); } catch (e) { /* ignore */ }
+      });
+      polylinesRef.current.clear();
+      routePathsRef.current.clear();
       if (simActivityTimerRef.current) { clearInterval(simActivityTimerRef.current); simActivityTimerRef.current = null; }
       if (mapRef.current) mapRef.current.remove();
     };
@@ -367,6 +472,18 @@ export default function SimulationMap() {
 
     const popup = `<strong>Unit #${id}</strong><br/>Type: ${unit.type}<br/>Status: ${unit.status ? 'Available' : 'Busy'}`;
 
+    // If this unit was recently generated and we stored a chosen target, avoid animating when the server confirms the same coords
+    let skipAnimate = false;
+    const pending = generatedTargetsRef.current.get(id);
+    if (pending) {
+      const dLat = Math.abs(lat - pending.lat);
+      const dLon = Math.abs(lon - pending.lon);
+      if (dLat < 0.00005 && dLon < 0.00005) {
+        skipAnimate = true;
+        generatedTargetsRef.current.delete(id);
+      }
+    }
+
     if (markersRef.current.units.has(id)) {
       const marker = markersRef.current.units.get(id);
       // Smoothly animate position changes rather than jumping
@@ -378,7 +495,12 @@ export default function SimulationMap() {
         const lonDiff = Math.abs(curLng - lon);
         // Only animate if movement is meaningful to avoid unnecessary work
         if ((latDiff > 0.00001 || lonDiff > 0.00001) && marker.setLatLng) {
-          animateMarkerTo(marker, lat, lon, 800);
+          if (skipAnimate) {
+            // Server confirmed our chosen target — set directly to avoid a visual jump
+            marker.setLatLng([lat, lon]);
+          } else {
+            animateMarkerTo(marker, lat, lon, 800);
+          }
         } else if (marker.setLatLng) {
           marker.setLatLng([lat, lon]);
         }
@@ -602,6 +724,8 @@ export default function SimulationMap() {
     const count = (typeof countParam !== 'undefined') ? countParam : unitCount;
     if (!count || count < 1) return alert('Enter a valid number');
 
+    isGeneratingUnitsRef.current = true;
+
     // disable map button to prevent duplicate clicks
     const btn = document.getElementById('mapGenerateBtn');
     if (btn) btn.disabled = true;
@@ -612,25 +736,45 @@ export default function SimulationMap() {
       console.log('Created units:', created);
 
       if (Array.isArray(created)) {
-        created.forEach(addOrUpdateUnit);
-        // Move each created unit to a random spot in Manhattan
-        websocketService.connect().then(() => {
-          created.forEach(u => {
-            const coords = randomLasVegas();
-            websocketService.send('/app/unit.updateLocation', { unitId: u.unitID, latitude: coords.lat, longitude: coords.lng });
-          });
-        }).catch(() => {
-          // fallback: full PUT update (include required fields to avoid nulling)
-          created.forEach(u => {
-            const coords = randomLasVegas();
-            fetch(`${API_BASE}/api/emergency-units/${u.unitID}`, {
+          // Choose final Las Vegas coordinates up front so we can persist them and render server-confirmed positions.
+        const createdWithTargets = created.map(u => {
+          const coords = randomLasVegas();
+          return { ...u, latitude: coords.lat, longtitude: coords.lng, longitude: coords.lng };
+        });
+
+        // Persist chosen coordinates for each unit and render based on server confirmation when possible.
+        await Promise.all(createdWithTargets.map(async (u) => {
+          // remember pending target to avoid visual jitter when server confirms the same location
+          generatedTargetsRef.current.set(u.unitID, { lat: u.latitude, lon: u.longtitude || u.longitude });
+          const cleanup = setTimeout(() => generatedTargetsRef.current.delete(u.unitID), 5000);
+          try {
+            // Prefer REST PUT to persist location; when backend echoes the unit it's authoritative.
+            const res2 = await fetch(`${API_BASE}/api/emergency-units/${u.unitID}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ latitude: coords.lat, longtitude: coords.lng, type: u.type, capacity: u.capacity, status: u.status })
-            }).then(r => r.json()).then(updated => addOrUpdateUnit(updated)).catch(e => console.error('Unit update fallback failed', e));
-          });
-        });
-        alert(`Created ${created.length} unit(s)`);
+              body: JSON.stringify({ latitude: u.latitude, longtitude: u.longtitude || u.longitude, type: u.type, capacity: u.capacity, status: u.status })
+            });
+            if (res2.ok) {
+              const updated = await res2.json();
+              addOrUpdateUnit(updated);
+            } else {
+              // fallback to local render and attempt websocket update
+              addOrUpdateUnit(u);
+              websocketService.connect().then(() => {
+                websocketService.send('/app/unit.updateLocation', { unitId: u.unitID, latitude: u.latitude, longitude: u.longtitude || u.longitude });
+              }).catch(() => {});
+            }
+          } catch (err) {
+            // network error: render locally and try websocket push
+            addOrUpdateUnit(u);
+            try { websocketService.connect().then(() => websocketService.send('/app/unit.updateLocation', { unitId: u.unitID, latitude: u.latitude, longitude: u.longtitude || u.longitude })); } catch (e) {}
+          } finally {
+            clearTimeout(cleanup);
+            generatedTargetsRef.current.delete(u.unitID);
+          }
+        }));
+        // Show alert asynchronously so units render immediately without being blocked
+        setTimeout(() => alert(`Created ${createdWithTargets.length} unit(s)`), 100);
       } else {
         alert('Unexpected response from server');
       }
@@ -638,6 +782,8 @@ export default function SimulationMap() {
       alert('Error generating units: ' + e);
     } finally {
       if (btn) btn.disabled = false;
+      // Keep suppression a bit longer to let initial location updates arrive
+      setTimeout(() => { isGeneratingUnitsRef.current = false; }, 800);
     }
   }
 

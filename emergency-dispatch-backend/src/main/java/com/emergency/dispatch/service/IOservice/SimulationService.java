@@ -236,6 +236,7 @@ public class SimulationService {
             if (root.path("code").asText().equals("Ok")) {
                 JsonNode geometry = root.path("routes").get(0).path("geometry").path("coordinates");
                 Queue<double[]> path = new ConcurrentLinkedQueue<>();
+                java.util.List<double[]> pathCoordinates = new java.util.ArrayList<>();
                 
                 if (geometry.isArray()) {
                     for (JsonNode coord : geometry) {
@@ -243,19 +244,40 @@ public class SimulationService {
                         double lon = coord.get(0).asDouble();
                         double lat = coord.get(1).asDouble();
                         path.add(new double[]{lat, lon});
+                        pathCoordinates.add(new double[]{lat, lon});
                     }
                 }
                 activeRoutes.put(unit.getUnitID(), path);
                 System.out.println("[Simulation] Route fetched for Unit " + unit.getUnitID() + ": " + path.size() + " points.");
+                
+                // Broadcast the route path to the frontend for visualization
+                broadcastRoutePath(unit.getUnitID(), incident.getType().toString(), pathCoordinates);
             }
         } catch (Exception e) {
             System.err.println("[Simulation] Failed to fetch OSRM route: " + e.getMessage());
         }
     }
 
+    private void broadcastRoutePath(Long unitId, String incidentType, java.util.List<double[]> pathCoordinates) {
+        try {
+            Map<String, Object> routeData = new HashMap<>();
+            routeData.put("unitId", unitId);
+            routeData.put("incidentType", incidentType);
+            routeData.put("path", pathCoordinates);
+            messagingTemplate.convertAndSend("/topic/unit-route", (Object) routeData);
+            System.out.println("[Simulation] Route path broadcast for Unit " + unitId);
+        } catch (Exception e) {
+            System.err.println("[Simulation] Failed to broadcast route path: " + e.getMessage());
+        }
+    }
+
     public void stopSimulation() {
         running.set(false);
-        activeRoutes.clear();
-        if (simulationThread != null) simulationThread.interrupt();
+        // Preserve activeRoutes so ongoing unit routes are not lost when pausing the simulation.
+        // This allows restarting the simulation to resume movement from where it stopped.
+        if (simulationThread != null) {
+            simulationThread.interrupt();
+            simulationThread = null;
+        }
     }
 }

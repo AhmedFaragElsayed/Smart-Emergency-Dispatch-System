@@ -128,6 +128,13 @@ class WebSocketService {
       this.notifyListeners('unitLocation', locationUpdate);
     });
 
+    // Subscribe to unit route path updates (for route visualization)
+    this.subscribe('/topic/unit-route', (message) => {
+      const routeData = JSON.parse(message.body);
+      console.log('Received unit route path:', routeData);
+      this.notifyListeners('unitRoute', routeData);
+    });
+
     // Keep older location-updates subscription name (if used elsewhere)
     this.subscribe('/topic/location-updates', (message) => {
       const locationUpdate = JSON.parse(message.body);
