@@ -40,6 +40,8 @@ export default function SimulationMap() {
   const [simulationRunning, setSimulationRunning] = useState(false);
   const lastSimActivityRef = useRef(null);
   const simActivityTimerRef = useRef(null);
+  // If user explicitly started the simulation via the UI, keep indicator on until they stop it
+  const explicitSimStartRef = useRef(false);
 
   useEffect(() => {
     // Initialize map (center Manhattan)
@@ -198,11 +200,40 @@ export default function SimulationMap() {
       }
     };
 
-    const handleAssignmentUpdate = (assignment) => {
-      if (Array.isArray(assignment)) {
-        assignment.forEach(processAssignment);
-      } else {
-        processAssignment(assignment);
+    const handleAssignmentUpdate = async (assignment) => {
+      try {
+        if (Array.isArray(assignment)) {
+          assignment.forEach(processAssignment);
+        } else {
+          processAssignment(assignment);
+        }
+      } catch (e) {
+        console.error('Error processing assignment(s)', e);
+      }
+
+      // Refresh enriched incidents view to ensure counts/status are accurate
+      try {
+        const res = await fetch(`${API_BASE}/api/monitor/incidents`);
+        if (res.ok) {
+          const enriched = await res.json();
+          applyEnrichedIncidents(enriched);
+        }
+      } catch (e) {
+        console.warn('Failed to refresh enriched incidents after assignment update', e);
+      }
+
+      // Also refresh units monitor to get accurate unit status (busy/available)
+      try {
+        const res2 = await fetch(`${API_BASE}/api/monitor/units`);
+        if (res2.ok) {
+          const units = await res2.json();
+          if (Array.isArray(units)) {
+            // reuse existing handler that clears and adds units
+            handleUnitsList(units.map(u => ({ unitID: u.unitID, latitude: u.latitude, longtitude: u.longtitude, type: u.type, status: u.status })));
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to refresh units after assignment update', e);
       }
     };
 
@@ -215,13 +246,29 @@ export default function SimulationMap() {
     const handleUnitsListWithActivity = (units) => { bumpSimActivity(); handleUnitsList(units); };
     const handleAssignmentUpdateWithActivity = (a) => { bumpSimActivity(); handleAssignmentUpdate(a); };
     const handleAssignmentsListWithActivity = (list) => { bumpSimActivity(); handleAssignmentUpdate(list); };
-    const handleIncidentsList = (list) => { bumpSimActivity(); if (Array.isArray(list)) list.forEach(addOrUpdateIncident); };
+    // When a raw incidents list is received from the simulation, request the enriched incident view
+    // (includes active assignment counts and status) and apply it atomically to the map.
+    const handleIncidentsList = async (list) => {
+      bumpSimActivity();
+      try {
+        const res = await fetch(`${API_BASE}/api/monitor/incidents`);
+        if (res.ok) {
+          const enriched = await res.json();
+          applyEnrichedIncidents(enriched);
+        } else {
+          console.warn('Failed to fetch enriched incidents, status:', res.status);
+        }
+      } catch (e) {
+        console.warn('Error fetching enriched incidents', e);
+      }
+    };
 
     websocketService.on('unitsList', handleUnitsListWithActivity);
     websocketService.on('unitUpdate', (u) => { bumpSimActivity(); handleUnitUpdate(u); });
     websocketService.on('unitLocation', (loc) => { bumpSimActivity(); handleUnitLocation(loc); });
     websocketService.on('incidentAdded', (inc) => { bumpSimActivity(); handleIncident(inc); });
     websocketService.on('incidentsList', handleIncidentsList);
+    websocketService.on('incidentsMonitorList', (list) => { bumpSimActivity(); if (Array.isArray(list)) applyEnrichedIncidents(list); });
     websocketService.on('incidentUpdate', (i) => { bumpSimActivity(); handleIncidentUpdate(i); });
     websocketService.on('assignmentUpdate', handleAssignmentUpdateWithActivity);
     websocketService.on('assignmentsList', handleAssignmentsListWithActivity);
@@ -229,13 +276,26 @@ export default function SimulationMap() {
     websocketService.on('disconnected', handleDisconnect);
 
     // Try to get initial units and incidents via HTTP (fallback)
-    fetch(`${API_BASE}/api/emergency-units`).then(r => r.json()).then(units => {
-      units.forEach(addOrUpdateUnit);
-    }).catch(e => console.warn('Error fetching units', e));
+    // Prefer monitor endpoint which includes assignment status for units
+    fetch(`${API_BASE}/api/monitor/units`).then(r => r.json()).then(units => {
+      if (Array.isArray(units)) {
+        // The monitor returns maps with unitID and status, so reuse addOrUpdateUnit
+        units.forEach(u => addOrUpdateUnit({ unitID: u.unitID, latitude: u.latitude, longtitude: u.longtitude, type: u.type, status: u.status }));
+      }
+    }).catch(e => {
+      // fallback
+      fetch(`${API_BASE}/api/emergency-units`).then(r => r.json()).then(units => { units.forEach(addOrUpdateUnit); }).catch(e => console.warn('Error fetching units', e));
+      console.warn('Error fetching enriched units', e);
+    });
 
-    fetch(`${API_BASE}/api/incidents`).then(r => r.json()).then(incidents => {
-      if (Array.isArray(incidents)) incidents.forEach(addOrUpdateIncident);
-    }).catch(e => console.warn('Error fetching incidents', e));
+    // Use the enriched monitor endpoint initially so incidents show assignment/count/status metadata
+    fetch(`${API_BASE}/api/monitor/incidents`).then(r => r.json()).then(incidents => {
+      if (Array.isArray(incidents)) applyEnrichedIncidents(incidents);
+    }).catch(e => {
+      // fallback to raw list if monitor endpoint unavailable
+      fetch(`${API_BASE}/api/incidents`).then(r => r.json()).then(incidents => { if (Array.isArray(incidents)) incidents.forEach(addOrUpdateIncident); }).catch(e => console.warn('Error fetching incidents', e));
+      console.warn('Error fetching enriched incidents', e);
+    });
 
     return () => {
       websocketService.off('unitsList', handleUnitsListWithActivity);
@@ -243,6 +303,7 @@ export default function SimulationMap() {
       websocketService.off('unitLocation');
       websocketService.off('incidentAdded');
       websocketService.off('incidentsList', handleIncidentsList);
+      websocketService.off('incidentsMonitorList');
       websocketService.off('incidentUpdate');
       websocketService.off('assignmentUpdate', handleAssignmentUpdateWithActivity);
       websocketService.off('assignmentsList', handleAssignmentsListWithActivity);
@@ -261,10 +322,16 @@ export default function SimulationMap() {
 
   // Monitor recent websocket activity to heuristically determine if the simulation is running
   useEffect(() => {
-    // Check every 2 seconds; if we saw activity within the last 4 seconds assume simulation is active
+    // Check every 2 seconds; if we saw activity within the last 10 seconds assume simulation is active
+    // If the user explicitly started the simulation via the UI, keep the badge showing Running until they press Stop
     simActivityTimerRef.current = setInterval(() => {
       const last = lastSimActivityRef.current;
-      if (last && (Date.now() - last) < 4000) {
+      if (explicitSimStartRef.current) {
+        // Keep showing running until the user explicitly stops it
+        setSimulationRunning(true);
+        return;
+      }
+      if (last && (Date.now() - last) < 10000) {
         setSimulationRunning(true);
       } else {
         setSimulationRunning(false);
@@ -332,6 +399,34 @@ export default function SimulationMap() {
       </svg>`;
     const className = 'incident-pin-icon incident-status-' + statusStr.toLowerCase();
     return L.divIcon({ html: svg, className, iconSize: [size, size], iconAnchor: [Math.floor(size/2), size], popupAnchor: [0, -Math.floor(size/2)] });
+  }
+
+  // Apply a list of enriched incidents atomically: remove stale markers and add/update current markers
+  function applyEnrichedIncidents(enrichedList) {
+    if (!Array.isArray(enrichedList)) return;
+    const ids = new Set(enrichedList.map(i => i.incidentId || i.incident_id || i.id));
+    // Remove markers not present in the incoming enriched list
+    for (const [existingId, marker] of Array.from(markersRef.current.incidents.entries())) {
+      if (!ids.has(existingId)) {
+        try { mapRef.current.removeLayer(marker); } catch (e) { /* ignore */ }
+        markersRef.current.incidents.delete(existingId);
+      }
+    }
+    // Add or update incoming incidents
+    enrichedList.forEach(i => {
+      const inc = {
+        incidentId: i.incidentId || i.incident_id || i.id,
+        type: i.type,
+        latitude: i.latitude,
+        longtitude: i.longtitude || i.longitude,
+        severityLevel: i.severityLevel || i.severity || i.severity_level,
+        status: i.status,
+        hasActiveAssignments: i.hasActiveAssignments,
+        hasAssignments: i.hasAssignments,
+        assignedUnitsCount: i.assignedUnitsCount || i.totalAssignmentsCount
+      };
+      addOrUpdateIncident(inc);
+    });
   }
 
   function addOrUpdateIncident(inc) {
@@ -474,6 +569,7 @@ export default function SimulationMap() {
       .then(r => r.text())
       .then(t => {
         alert(t);
+        explicitSimStartRef.current = true;
         setSimulationRunning(true);
         lastSimActivityRef.current = Date.now();
       })
@@ -484,6 +580,7 @@ export default function SimulationMap() {
       .then(r => r.text())
       .then(t => {
         alert(t);
+        explicitSimStartRef.current = false;
         setSimulationRunning(false);
         lastSimActivityRef.current = null;
       })

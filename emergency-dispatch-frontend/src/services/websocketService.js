@@ -86,6 +86,15 @@ class WebSocketService {
       this.notifyListeners('incidentUpdate', incident);
     });
 
+    // Subscribe to enriched incidents list published by IncidentMonitorService
+    this.subscribe('/topic/incidents-monitor', (message) => {
+      const body = JSON.parse(message.body);
+      if (Array.isArray(body)) {
+        console.log('Received enriched incidents list:', body);
+        this.notifyListeners('incidentsMonitorList', body);
+      }
+    });
+
     // Also subscribe to new incident publishes (some controllers use /topic/incidents)
     this.subscribe('/topic/incidents', (message) => {
       const body = JSON.parse(message.body);
