@@ -11,14 +11,20 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.web.client.RestTemplate;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.HashMap;
+import java.util.Locale;
 
 
 import java.util.Comparator;
 import java.util.PriorityQueue;
 import java.util.Queue;
-import java.util.concurrent.ConcurrentLinkedQueue;
-
-
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
@@ -32,6 +38,12 @@ public class SimulationService {
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
+
+    private final RestTemplate restTemplate = new RestTemplate();
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    // Store active routes: UnitID -> Queue of [Lat, Lon] points
+    private final Map<Long, Queue<double[]>> activeRoutes = new ConcurrentHashMap<>();
+    
     private Thread simulationThread;
     private final AtomicBoolean running = new AtomicBoolean(false);
 
@@ -54,6 +66,8 @@ public class SimulationService {
             java.util.List<EmergencyUnit> ambulanceUnits = new java.util.ArrayList<>();
             while (running.get()) {
                 try {
+                    processUnitMovements(); 
+                    
                     // Clear and refill queues
                     fireIncidents.clear(); policeIncidents.clear(); ambulanceIncidents.clear();
                     fireUnits.clear(); policeUnits.clear(); ambulanceUnits.clear();
@@ -132,6 +146,13 @@ public class SimulationService {
                 System.out.println("[SimulationService] Assigning unit " + nearestUnit.getUnitID() + " to incident " + incident.getIncidentId());
                 nearestUnit.setStatus(false); // busy
                 emergencyUnitRepository.save(nearestUnit);
+            
+                EmergencyUnit finalUnit = nearestUnit;
+                Incident finalIncident = incident;
+                
+                // Run this in a separate thread so the loop continues immediately
+                CompletableFuture.runAsync(() -> fetchAndStoreRoute(finalUnit, finalIncident));
+
                 // Create and save assignment
                 Assignment assignment = new Assignment();
                 assignment.setAssignmentTime(System.currentTimeMillis()); // store actual assignment time in ms
@@ -154,8 +175,87 @@ public class SimulationService {
         }
     }
 
+    
+
+    private void processUnitMovements() {
+        if (activeRoutes.isEmpty()) return;
+
+        java.util.List<EmergencyUnit> unitsToUpdate = new java.util.ArrayList<>();
+        
+        final int SPEED_FACTOR = 5; 
+
+        activeRoutes.forEach((unitId, route) -> {
+            if (!route.isEmpty()) {
+                double[] point = null;
+                
+                // Consume multiple points to simulate speed
+                for(int i=0; i<SPEED_FACTOR && !route.isEmpty(); i++) {
+                    point = route.poll();
+                }
+                
+                if (point != null) {
+                    double[] finalPoint = point; // effective final for lambda
+                    emergencyUnitRepository.findById(unitId).ifPresent(unit -> {
+                        unit.setLatitude(finalPoint[0]);
+                        unit.setLongtitude(finalPoint[1]); 
+                        unitsToUpdate.add(unit);
+                        
+                        Map<String, Object> update = new HashMap<>();
+                        update.put("unitId", unit.getUnitID());
+                        update.put("latitude", unit.getLatitude());
+                        update.put("longtitude", unit.getLongtitude());
+                        update.put("type", unit.getType());
+                        update.put("status", unit.getStatus());
+
+                        messagingTemplate.convertAndSend("/topic/unit-location", (Object) update);
+                    });
+                }
+            } else {
+                activeRoutes.remove(unitId);
+            }
+        });
+
+        if (!unitsToUpdate.isEmpty()) {
+            emergencyUnitRepository.saveAll(unitsToUpdate);
+        }
+    }
+
+    private void fetchAndStoreRoute(EmergencyUnit unit, Incident incident) {
+        try {
+            // OSRM requires "lon,lat" format. API is free for fair use.
+            // Using US locale to ensure dots instead of commas for decimals
+            String coordinates = String.format(Locale.US, "%f,%f;%f,%f", 
+                unit.getLongtitude(), unit.getLatitude(), 
+                incident.getLongtitude(), incident.getLatitude());
+            
+            String url = "http://router.project-osrm.org/route/v1/driving/" + coordinates + "?geometries=geojson&overview=full";
+            
+            String response = restTemplate.getForObject(url, String.class);
+            JsonNode root = objectMapper.readTree(response);
+            
+            if (root.path("code").asText().equals("Ok")) {
+                JsonNode geometry = root.path("routes").get(0).path("geometry").path("coordinates");
+                Queue<double[]> path = new ConcurrentLinkedQueue<>();
+                
+                if (geometry.isArray()) {
+                    for (JsonNode coord : geometry) {
+                        // OSRM returns [lon, lat]
+                        double lon = coord.get(0).asDouble();
+                        double lat = coord.get(1).asDouble();
+                        path.add(new double[]{lat, lon});
+                    }
+                }
+                activeRoutes.put(unit.getUnitID(), path);
+                System.out.println("[Simulation] Route fetched for Unit " + unit.getUnitID() + ": " + path.size() + " points.");
+            }
+        } catch (Exception e) {
+            System.err.println("[Simulation] Failed to fetch OSRM route: " + e.getMessage());
+        }
+    }
+
     public void stopSimulation() {
         running.set(false);
+        activeRoutes.clear();
         if (simulationThread != null) simulationThread.interrupt();
     }
 }
