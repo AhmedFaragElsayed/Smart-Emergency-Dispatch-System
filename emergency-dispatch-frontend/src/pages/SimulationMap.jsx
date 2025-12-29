@@ -123,8 +123,8 @@ export default function SimulationMap() {
 
     // Handlers
     const handleUnitsList = (units) => {
-      // clear existing unit markers
-      markersRef.current.units.forEach(m => mapRef.current.removeLayer(m));
+      // clear existing unit markers (stop any running animations first)
+      markersRef.current.units.forEach(m => { try { if (m && m._moveAnimation) { m._moveAnimation.cancelled = true; m._moveAnimation = null; } mapRef.current.removeLayer(m); } catch(e) { /* ignore */ } });
       markersRef.current.units.clear();
       units.forEach(addOrUpdateUnit);
     };
@@ -134,25 +134,41 @@ export default function SimulationMap() {
       addOrUpdateUnit({ unitID: update.unitId, latitude: update.latitude, longtitude: update.longtitude, type: update.type, status: update.status });
     };
     const handleIncident = (inc) => {
-      // add immediately as a colored dot
-      addOrUpdateIncident(inc);
-      // then move it to Las Vegas by updating backend and updating marker style/position
+      // Place the incident directly at a Las Vegas coordinate to avoid visual flicker.
       const coords = randomLasVegas();
+      // Add a preview of the incident locally at the target LV coordinates before persisting
+      const previewInc = { ...inc, latitude: coords.lat, longtitude: coords.lng };
+      addOrUpdateIncident(previewInc);
+
+      // Persist the chosen LV coordinates to the backend. When the backend responds,
+      // update style/popup and only move the marker if the backend returns a meaningfully
+      // different location to prevent a visible jump.
       fetch(`${API_BASE}/api/incidents/${inc.incidentId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ latitude: coords.lat, longtitude: coords.lng })
       }).then(r => r.json())
         .then(updated => {
-          // update marker position and style if exists
           const marker = markersRef.current.incidents.get(updated.incidentId);
           const severity = (updated.severityLevel || '').toString().toUpperCase();
-          if (marker && marker.setLatLng) {
-            marker.setLatLng([updated.latitude, updated.longtitude]);
-            const hasActiveUpdated = Boolean(updated.hasActiveAssignments || updated.hasAssignments || (updated.assignedUnitsCount && updated.assignedUnitsCount > 0));
-            const statusUpdated = (updated.status || '').toString().toUpperCase() || 'PENDING';
+          const hasActiveUpdated = Boolean(updated.hasActiveAssignments || updated.hasAssignments || (updated.assignedUnitsCount && updated.assignedUnitsCount > 0));
+          const statusUpdated = (updated.status || '').toString().toUpperCase() || 'PENDING';
+
+          if (marker) {
+            // Only move marker if backend coordinates differ significantly to avoid jumps
+            const updatedLat = parseFloat(updated.latitude);
+            const updatedLon = parseFloat(updated.longtitude || updated.longitude || 0);
+            if (isFinite(updatedLat) && isFinite(updatedLon)) {
+              const currentLatLng = marker.getLatLng && marker.getLatLng();
+              const latDiff = currentLatLng ? Math.abs(currentLatLng.lat - updatedLat) : Number.POSITIVE_INFINITY;
+              const lonDiff = currentLatLng ? Math.abs(currentLatLng.lng - updatedLon) : Number.POSITIVE_INFINITY;
+              if (latDiff > 0.00001 || lonDiff > 0.00001) {
+                if (marker.setLatLng) marker.setLatLng([updatedLat, updatedLon]);
+              }
+            }
+
             if (marker.setIcon) marker.setIcon(createIncidentIcon(updated.type, severity, hasActiveUpdated, statusUpdated));
-            marker.bindPopup(`<strong>Incident #${updated.incidentId}</strong><br/>Type: ${updated.type}<br/>Severity: ${updated.severityLevel}<br/>Status: ${statusUpdated}`);
+            if (marker.bindPopup) marker.bindPopup(`<strong>Incident #${updated.incidentId}</strong><br/>Type: ${updated.type}<br/>Severity: ${updated.severityLevel}<br/>Status: ${statusUpdated}`);
           } else {
             addOrUpdateIncident(updated);
           }
@@ -351,12 +367,29 @@ export default function SimulationMap() {
 
     if (markersRef.current.units.has(id)) {
       const marker = markersRef.current.units.get(id);
-      // Update position and icon to reflect type changes
-      marker.setLatLng([lat, lon]);
+      // Smoothly animate position changes rather than jumping
+      try {
+        const current = marker.getLatLng && marker.getLatLng();
+        const curLat = current ? current.lat : lat;
+        const curLng = current ? current.lng : lon;
+        const latDiff = Math.abs(curLat - lat);
+        const lonDiff = Math.abs(curLng - lon);
+        // Only animate if movement is meaningful to avoid unnecessary work
+        if ((latDiff > 0.00001 || lonDiff > 0.00001) && marker.setLatLng) {
+          animateMarkerTo(marker, lat, lon, 800);
+        } else if (marker.setLatLng) {
+          marker.setLatLng([lat, lon]);
+        }
+      } catch (e) {
+        // fallback to direct set
+        if (marker.setLatLng) marker.setLatLng([lat, lon]);
+      }
+
       if (marker.setIcon) {
         marker.setIcon(createCarIcon(unit.type));
       } else {
         // fallback: remove and recreate marker
+        try { if (marker && marker._moveAnimation) { marker._moveAnimation.cancelled = true; marker._moveAnimation = null; } } catch(e) {}
         mapRef.current.removeLayer(marker);
         const newMarker = L.marker([lat, lon], { icon: createCarIcon(unit.type) }).addTo(mapRef.current);
         newMarker.bindPopup(popup);
@@ -519,6 +552,48 @@ export default function SimulationMap() {
         </g>
       </svg>`;
     return L.divIcon({ html: svg, className: 'unit-car-icon', iconSize: [36, 20], iconAnchor: [18, 10], popupAnchor: [0, -10] });
+  }
+
+  // Smoothly animate a marker from its current position to the given lat/lng. Uses requestAnimationFrame
+  // and a gentle ease to make unit movement appear smooth when they move to incidents.
+  function animateMarkerTo(marker, toLat, toLng, duration = 700) {
+    if (!marker || typeof marker.getLatLng !== 'function' || typeof marker.setLatLng !== 'function') return;
+
+    // cancel any active animation
+    if (marker._moveAnimation) { marker._moveAnimation.cancelled = true; marker._moveAnimation = null; }
+
+    const startLatLng = marker.getLatLng() || { lat: toLat, lng: toLng };
+    const startLat = startLatLng.lat;
+    const startLng = startLatLng.lng;
+    const deltaLat = toLat - startLat;
+    const deltaLng = toLng - startLng;
+    if (Math.abs(deltaLat) < 1e-10 && Math.abs(deltaLng) < 1e-10) return;
+
+    const startTime = performance.now();
+    const anim = { cancelled: false };
+    marker._moveAnimation = anim;
+
+    // easeInOutQuad
+    const ease = (t) => t < 0.5 ? 2*t*t : -1 + (4 - 2*t)*t;
+
+    function step(now) {
+      if (anim.cancelled) { marker._moveAnimation = null; return; }
+      const t = Math.min(1, (now - startTime) / duration);
+      const eased = ease(t);
+      const curLat = startLat + deltaLat * eased;
+      const curLng = startLng + deltaLng * eased;
+      marker.setLatLng([curLat, curLng]);
+      if (t < 1) {
+        requestAnimationFrame(step);
+      } else {
+        marker._moveAnimation = null;
+      }
+    }
+    requestAnimationFrame(step);
+  }
+
+  function stopMarkerAnimation(marker) {
+    if (marker && marker._moveAnimation) { marker._moveAnimation.cancelled = true; marker._moveAnimation = null; }
   }
 
   async function generateUnits(countParam) {
