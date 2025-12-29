@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import websocketService from '../services/websocketService';
+import { useNavigate } from 'react-router-dom';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 // Fix default marker icons when using bundlers (Vite/webpack)
@@ -35,6 +36,7 @@ export default function SimulationMap() {
   const markersRef = useRef({ units: new Map(), incidents: new Map() });
   const [connected, setConnected] = useState(websocketService.isConnected());
   const [unitCount, setUnitCount] = useState(3);
+  const navigate = useNavigate();
   // Track whether the simulation appears to be running. We set this when start/stop are clicked
   // and also auto-detect activity (assignments/units updates) to keep in sync when others control the sim.
   const [simulationRunning, setSimulationRunning] = useState(false);
@@ -672,6 +674,7 @@ export default function SimulationMap() {
             <span className="sim-dot" aria-hidden></span>
             <span className="sim-text">Simulation: {simulationRunning ? 'Running' : 'Stopped'}</span>
           </div>
+        <button className="analytics-btn" onClick={() => navigate('/analytics')} style={{padding:8,background:'#007bff',color:'#fff',borderRadius:6}}>📊 Analytics</button>
         </div>
         <div style={{marginLeft:'auto',fontWeight:700}}>WS: {connected ? 'Connected' : 'Disconnected'}</div>
       </div>
