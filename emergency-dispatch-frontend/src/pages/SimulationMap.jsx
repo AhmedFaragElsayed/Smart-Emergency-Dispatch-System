@@ -35,6 +35,11 @@ export default function SimulationMap() {
   const markersRef = useRef({ units: new Map(), incidents: new Map() });
   const [connected, setConnected] = useState(websocketService.isConnected());
   const [unitCount, setUnitCount] = useState(3);
+  // Track whether the simulation appears to be running. We set this when start/stop are clicked
+  // and also auto-detect activity (assignments/units updates) to keep in sync when others control the sim.
+  const [simulationRunning, setSimulationRunning] = useState(false);
+  const lastSimActivityRef = useRef(null);
+  const simActivityTimerRef = useRef(null);
 
   useEffect(() => {
     // Initialize map (center Manhattan)
@@ -142,8 +147,10 @@ export default function SimulationMap() {
           const severity = (updated.severityLevel || '').toString().toUpperCase();
           if (marker && marker.setLatLng) {
             marker.setLatLng([updated.latitude, updated.longtitude]);
-            if (marker.setIcon) marker.setIcon(createIncidentIcon(updated.type, severity, Boolean(updated.hasActiveAssignments || updated.hasAssignments || (updated.assignedUnitsCount && updated.assignedUnitsCount > 0))));
-            marker.bindPopup(`<strong>Incident #${updated.incidentId}</strong><br/>Type: ${updated.type}<br/>Severity: ${updated.severityLevel}`);
+            const hasActiveUpdated = Boolean(updated.hasActiveAssignments || updated.hasAssignments || (updated.assignedUnitsCount && updated.assignedUnitsCount > 0));
+            const statusUpdated = (updated.status || '').toString().toUpperCase() || 'PENDING';
+            if (marker.setIcon) marker.setIcon(createIncidentIcon(updated.type, severity, hasActiveUpdated, statusUpdated));
+            marker.bindPopup(`<strong>Incident #${updated.incidentId}</strong><br/>Type: ${updated.type}<br/>Severity: ${updated.severityLevel}<br/>Status: ${statusUpdated}`);
           } else {
             addOrUpdateIncident(updated);
           }
@@ -202,15 +209,22 @@ export default function SimulationMap() {
     const handleConnect = () => setConnected(true);
     const handleDisconnect = () => setConnected(false);
 
-    websocketService.on('unitsList', handleUnitsList);
-    websocketService.on('unitUpdate', handleUnitUpdate);
-    websocketService.on('unitLocation', handleUnitLocation);
-    websocketService.on('incidentAdded', handleIncident);
-    const handleIncidentsList = (list) => { if (Array.isArray(list)) list.forEach(addOrUpdateIncident); };
+    const bumpSimActivity = () => { lastSimActivityRef.current = Date.now(); };
+
+    // Wrap certain handlers to also mark simulation activity
+    const handleUnitsListWithActivity = (units) => { bumpSimActivity(); handleUnitsList(units); };
+    const handleAssignmentUpdateWithActivity = (a) => { bumpSimActivity(); handleAssignmentUpdate(a); };
+    const handleAssignmentsListWithActivity = (list) => { bumpSimActivity(); handleAssignmentUpdate(list); };
+    const handleIncidentsList = (list) => { bumpSimActivity(); if (Array.isArray(list)) list.forEach(addOrUpdateIncident); };
+
+    websocketService.on('unitsList', handleUnitsListWithActivity);
+    websocketService.on('unitUpdate', (u) => { bumpSimActivity(); handleUnitUpdate(u); });
+    websocketService.on('unitLocation', (loc) => { bumpSimActivity(); handleUnitLocation(loc); });
+    websocketService.on('incidentAdded', (inc) => { bumpSimActivity(); handleIncident(inc); });
     websocketService.on('incidentsList', handleIncidentsList);
-    websocketService.on('incidentUpdate', handleIncidentUpdate);
-    websocketService.on('assignmentUpdate', handleAssignmentUpdate);
-    websocketService.on('assignmentsList', handleAssignmentUpdate);
+    websocketService.on('incidentUpdate', (i) => { bumpSimActivity(); handleIncidentUpdate(i); });
+    websocketService.on('assignmentUpdate', handleAssignmentUpdateWithActivity);
+    websocketService.on('assignmentsList', handleAssignmentsListWithActivity);
     websocketService.on('connected', handleConnect);
     websocketService.on('disconnected', handleDisconnect);
 
@@ -224,16 +238,17 @@ export default function SimulationMap() {
     }).catch(e => console.warn('Error fetching incidents', e));
 
     return () => {
-      websocketService.off('unitsList', handleUnitsList);
-      websocketService.off('unitUpdate', handleUnitUpdate);
-      websocketService.off('unitLocation', handleUnitLocation);
-      websocketService.off('incidentAdded', handleIncident);
+      websocketService.off('unitsList', handleUnitsListWithActivity);
+      websocketService.off('unitUpdate');
+      websocketService.off('unitLocation');
+      websocketService.off('incidentAdded');
       websocketService.off('incidentsList', handleIncidentsList);
-      websocketService.off('incidentUpdate', handleIncidentUpdate);
-      websocketService.off('assignmentUpdate', handleAssignmentUpdate);
-      websocketService.off('assignmentsList', handleAssignmentUpdate);
+      websocketService.off('incidentUpdate');
+      websocketService.off('assignmentUpdate', handleAssignmentUpdateWithActivity);
+      websocketService.off('assignmentsList', handleAssignmentsListWithActivity);
       websocketService.off('connected', handleConnect);
       websocketService.off('disconnected', handleDisconnect);
+      if (simActivityTimerRef.current) { clearInterval(simActivityTimerRef.current); simActivityTimerRef.current = null; }
       if (mapRef.current) mapRef.current.remove();
     };
   }, []);
@@ -243,6 +258,20 @@ export default function SimulationMap() {
     const input = document.getElementById('mapUnitCount');
     if (input) input.value = unitCount;
   }, [unitCount]);
+
+  // Monitor recent websocket activity to heuristically determine if the simulation is running
+  useEffect(() => {
+    // Check every 2 seconds; if we saw activity within the last 4 seconds assume simulation is active
+    simActivityTimerRef.current = setInterval(() => {
+      const last = lastSimActivityRef.current;
+      if (last && (Date.now() - last) < 4000) {
+        setSimulationRunning(true);
+      } else {
+        setSimulationRunning(false);
+      }
+    }, 2000);
+    return () => { if (simActivityTimerRef.current) { clearInterval(simActivityTimerRef.current); simActivityTimerRef.current = null; } };
+  }, []);
 
   function addOrUpdateUnit(unit) {
     if (!unit || unit.unitID == null) return;
@@ -278,21 +307,31 @@ export default function SimulationMap() {
     }
   }
 
-  // Create an SVG 'pin' icon for incidents (size depends on severity)
-  function createIncidentIcon(type, severity, hasActive) {
+  // Create an SVG 'pin' icon for incidents (size depends on severity and current incident status)
+  function createIncidentIcon(type, severity, hasActive, status) {
     const color = getColorForType(type);
     const size = severity === 'CRITICAL' ? 44 : (severity === 'MEDIUM' ? 36 : 28);
     const innerColor = '#fff';
-    const opacity = hasActive ? 0.85 : 1.0;
+    const statusStr = (status || 'PENDING').toString().toUpperCase();
+    // Completed incidents are dimmed; dispatched ones show an accent ring
+    const opacity = (statusStr === 'COMPLETED') ? 0.6 : (hasActive ? 0.85 : 1.0);
+    const strokeStyle = (statusStr === 'DISPATCH') ? 'stroke:#ff8c00;stroke-width:1.3' : 'stroke:#222;stroke-width:0.5';
+    const showCheck = (statusStr === 'COMPLETED');
+    const dispatchRing = (statusStr === 'DISPATCH') ? `<circle cx="12" cy="9.5" r="6.8" fill="none" stroke="#ff8c00" stroke-width="1" opacity="0.95" />` : '';
+    const pulseClass = (statusStr === 'COMPLETED') ? '' : 'pulse';
+    const checkSvg = showCheck ? '<path d="M9 11l2 2 4-4" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>' : '';
     const svg = `
       <svg width="${size}" height="${size}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <g class="pin-shadow">
-          <path class="pulse" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 11 7 11s7-5.75 7-11c0-3.87-3.13-7-7-7z" fill="${color}" fill-opacity="${opacity}" />
+          <path class="${pulseClass}" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 11 7 11s7-5.75 7-11c0-3.87-3.13-7-7-7z" fill="${color}" fill-opacity="${opacity}" />
         </g>
-        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 11 7 11s7-5.75 7-11c0-3.87-3.13-7-7-7z" fill="${color}" stroke="#222" stroke-width="0.5" />
+        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 11 7 11s7-5.75 7-11c0-3.87-3.13-7-7-7z" fill="${color}" style="${strokeStyle}" />
+        ${dispatchRing}
         <circle cx="12" cy="9.5" r="3.1" fill="${innerColor}" />
+        ${checkSvg}
       </svg>`;
-    return L.divIcon({ html: svg, className: 'incident-pin-icon', iconSize: [size, size], iconAnchor: [Math.floor(size/2), size], popupAnchor: [0, -Math.floor(size/2)] });
+    const className = 'incident-pin-icon incident-status-' + statusStr.toLowerCase();
+    return L.divIcon({ html: svg, className, iconSize: [size, size], iconAnchor: [Math.floor(size/2), size], popupAnchor: [0, -Math.floor(size/2)] });
   }
 
   function addOrUpdateIncident(inc) {
@@ -303,21 +342,22 @@ export default function SimulationMap() {
     if (!isFinite(lat) || !isFinite(lon)) return;
 
     const severity = (inc.severityLevel || '').toString().toUpperCase();
+    const status = (inc.status || '').toString().toUpperCase() || 'PENDING';
 
     // If the incident has an active assignment, style it slightly dimmer and show assigned count
     const hasActive = Boolean(inc.hasActiveAssignments || inc.hasAssignments || (inc.assignedUnitsCount && inc.assignedUnitsCount > 0));
 
     const assignmentText = hasActive ? `<br/><em>Assigned: ${inc.assignedUnitsCount ?? (inc.totalAssignmentsCount ?? 1)}</em>` : '';
-    const popup = `<strong>Incident #${id}</strong><br/>Type: ${inc.type}<br/>Severity: ${inc.severityLevel || ''}${assignmentText}`;
+    const popup = `<strong>Incident #${id}</strong><br/>Type: ${inc.type}<br/>Severity: ${inc.severityLevel || ''}${assignmentText}<br/>Status: ${status}`;
 
     if (markersRef.current.incidents.has(id)) {
       const marker = markersRef.current.incidents.get(id);
       if (marker.setLatLng) marker.setLatLng([lat, lon]);
-      if (marker.setIcon) marker.setIcon(createIncidentIcon(inc.type, severity, hasActive));
+      if (marker.setIcon) marker.setIcon(createIncidentIcon(inc.type, severity, hasActive, status));
       else {
         // fallback for older circle markers: remove and recreate as marker
         mapRef.current.removeLayer(marker);
-        const newMarker = L.marker([lat, lon], { icon: createIncidentIcon(inc.type, severity, hasActive) }).addTo(mapRef.current);
+        const newMarker = L.marker([lat, lon], { icon: createIncidentIcon(inc.type, severity, hasActive, status) }).addTo(mapRef.current);
         newMarker.bindPopup(popup);
         markersRef.current.incidents.set(id, newMarker);
       }
@@ -325,7 +365,7 @@ export default function SimulationMap() {
       const currentMarker = markersRef.current.incidents.get(id);
       if (currentMarker && currentMarker.bindPopup) currentMarker.bindPopup(popup);
     } else {
-      const marker = L.marker([lat, lon], { icon: createIncidentIcon(inc.type, severity, hasActive) }).addTo(mapRef.current);
+      const marker = L.marker([lat, lon], { icon: createIncidentIcon(inc.type, severity, hasActive, status) }).addTo(mapRef.current);
       marker.bindPopup(popup);
       markersRef.current.incidents.set(id, marker);
     }
@@ -351,6 +391,7 @@ export default function SimulationMap() {
       latitude: data.latitude,
       longtitude: data.longtitude || data.longitude,
       severityLevel: data.severityLevel || data.severity || data.severity_level,
+      status: data.status,
       hasActiveAssignments: data.hasActiveAssignments,
       hasAssignments: data.hasAssignments,
       assignedUnitsCount: data.assignedUnitsCount || data.totalAssignmentsCount
@@ -430,18 +471,36 @@ export default function SimulationMap() {
 
   function startSimulation() {
     fetch(`${API_BASE}/api/simulation/start`, { method: 'POST' })
-      .then(r => r.text()).then(t => alert(t)).catch(e => alert('Error: ' + e));
+      .then(r => r.text())
+      .then(t => {
+        alert(t);
+        setSimulationRunning(true);
+        lastSimActivityRef.current = Date.now();
+      })
+      .catch(e => alert('Error: ' + e));
   }
   function stopSimulation() {
     fetch(`${API_BASE}/api/simulation/stop`, { method: 'POST' })
-      .then(r => r.text()).then(t => alert(t)).catch(e => alert('Error: ' + e));
+      .then(r => r.text())
+      .then(t => {
+        alert(t);
+        setSimulationRunning(false);
+        lastSimActivityRef.current = null;
+      })
+      .catch(e => alert('Error: ' + e));
   }
 
   return (
     <div style={{height: '100%'}}>
       <div style={{display:'flex',padding:12,alignItems:'center',gap:12,background:'#f7f7f7'}}>
-        <button onClick={startSimulation} style={{padding:8,background:'#007bff',color:'#fff',borderRadius:6}}>Start Simulation</button>
-        <button onClick={stopSimulation} style={{padding:8,background:'#dc3545',color:'#fff',borderRadius:6}}>Stop Simulation</button>
+        <button onClick={startSimulation} disabled={simulationRunning} style={{padding:8,background:simulationRunning ? '#6c757d' : '#007bff',color:'#fff',borderRadius:6}}>Start Simulation</button>
+        <button onClick={stopSimulation} disabled={!simulationRunning} style={{padding:8,background:!simulationRunning ? '#6c757d' : '#dc3545',color:'#fff',borderRadius:6}}>Stop Simulation</button>
+        <div style={{marginLeft:12,display:'flex',alignItems:'center',gap:10}}>
+          <div className={`sim-badge ${simulationRunning ? 'running' : 'stopped'}`} title={`Simulation ${simulationRunning ? 'running' : 'stopped'}`}>
+            <span className="sim-dot" aria-hidden></span>
+            <span className="sim-text">Simulation: {simulationRunning ? 'Running' : 'Stopped'}</span>
+          </div>
+        </div>
         <div style={{marginLeft:'auto',fontWeight:700}}>WS: {connected ? 'Connected' : 'Disconnected'}</div>
       </div>
       <div id="simulation-map-root" style={{height:'calc(100vh - 64px)'}}></div>
