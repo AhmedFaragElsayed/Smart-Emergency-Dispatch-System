@@ -5,6 +5,7 @@ import com.emergency.dispatch.enums.IncidentType;
 import com.emergency.dispatch.enums.SeverityLevel;
 import com.emergency.dispatch.model.Incident;
 import com.emergency.dispatch.repository.IncidentRepository;
+import com.emergency.dispatch.service.IncidentMonitorService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -18,6 +19,9 @@ public class IncidentGeneratorService {
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private IncidentMonitorService incidentMonitorService;
 
     private static final IncidentType[] TYPES = IncidentType.values();
     private static final SeverityLevel[] SEVERITIES = SeverityLevel.values();
@@ -37,7 +41,9 @@ public class IncidentGeneratorService {
             Incident saved = incidentRepository.save(incident);
             // Per-incident WebSocket broadcast removed to avoid flooding; a single consolidated broadcast is sent after generation.
         }
-        // Broadcast all incidents after generation
+        // Broadcast enriched incidents list (includes assignment status) to the monitor topic
+        incidentMonitorService.broadcastAllIncidents();
+        // Also broadcast raw list for legacy HTML clients
         messagingTemplate.convertAndSend("/topic/incidents", incidentRepository.findAll());
     }
 }

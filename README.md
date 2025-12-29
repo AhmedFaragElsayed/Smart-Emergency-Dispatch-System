@@ -2,17 +2,6 @@
 
 The Smart Emergency Dispatch Optimization System is a comprehensive real-time platform designed to enhance emergency response efficiency in urban areas. The system connects emergency vehicles, dispatch centers, and citizens through a centralized database with live WebSocket updates.
 
-## 📋 Table of Contents
-- [Features](#features)
-- [Technology Stack](#technology-stack)
-- [System Architecture](#system-architecture)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [Running the Application](#running-the-application)
-- [API Documentation](#api-documentation)
-- [Database Schema](#database-schema)
-- [WebSocket Events](#websocket-events)
-- [Screenshots](#screenshots)
 
 ## ✨ Features
 
@@ -36,7 +25,7 @@ The Smart Emergency Dispatch Optimization System is a comprehensive real-time pl
 
 ### Backend
 - **Framework**: Spring Boot 3.x
-- **Language**: Java 17
+- **Language**: Java 
 - **Database**: MySQL
 - **WebSocket**: STOMP over SockJS
 - **ORM**: Spring Data JPA

@@ -26,13 +26,17 @@ public class IncidentMonitorController {
     @Autowired
     private IncidentMonService monitorService;
 
-    
+    @Autowired
+    private com.emergency.dispatch.service.IncidentMonitorService incidentMonitorService;
+
     @GetMapping("/incidents")
-    public ResponseEntity<java.util.List<com.emergency.dispatch.model.Incident>> getAllIncidentsStatus() {
+    public ResponseEntity<java.util.List<java.util.Map<String, Object>>> getAllIncidentsStatus() {
         try {
-            java.util.List<com.emergency.dispatch.model.Incident> incidentsData = monitorService.getOverdueIncidents();
+            // Return all incidents with enriched data (assignment status, counts, etc.)
+            java.util.List<java.util.Map<String, Object>> incidentsData = incidentMonitorService.getAllIncidentsWithStatus();
             return ResponseEntity.ok(incidentsData);
         } catch (Exception e) {
+            e.printStackTrace();
             return ResponseEntity.internalServerError().build();
         }
     }
