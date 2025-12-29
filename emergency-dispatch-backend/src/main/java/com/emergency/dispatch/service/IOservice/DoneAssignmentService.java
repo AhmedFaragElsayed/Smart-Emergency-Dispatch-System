@@ -24,6 +24,11 @@ public class DoneAssignmentService {
         List<Assignment> assignments = assignmentRepository.findByIncident_IncidentId(incidentId);
         for (Assignment assignment : assignments) {
             assignment.setIsActive(false);
+            if (assignment.getAssignmentTime() != null) {
+                assignment.setResolutionTime(System.currentTimeMillis() - assignment.getAssignmentTime()); // duration in ms
+            } else {
+                assignment.setResolutionTime(null);
+            }
             assignmentRepository.save(assignment);
             EmergencyUnit unit = assignment.getEmergencyUnit();
             if (unit != null) {

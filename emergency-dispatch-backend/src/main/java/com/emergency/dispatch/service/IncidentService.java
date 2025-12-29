@@ -27,7 +27,7 @@ public class IncidentService {
     private IncidentRepository incidentRepository;
 
     @Autowired
-    private IncidentMonitorService monitorService;
+    private com.emergency.dispatch.service.IOservice.IncidentMonService monitorService;
 
     @Autowired
     private UserRepository userRepository;

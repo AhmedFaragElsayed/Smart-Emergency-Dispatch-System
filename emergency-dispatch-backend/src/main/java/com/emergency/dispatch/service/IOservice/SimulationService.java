@@ -134,7 +134,7 @@ public class SimulationService {
                 emergencyUnitRepository.save(nearestUnit);
                 // Create and save assignment
                 Assignment assignment = new Assignment();
-                assignment.setAssignmentTime(java.time.LocalDate.now());
+                assignment.setAssignmentTime(System.currentTimeMillis()); // store actual assignment time in ms
                 assignment.setIncident(incident);
                 assignment.setEmergencyUnit(nearestUnit);
                 assignment.setIsActive(true);

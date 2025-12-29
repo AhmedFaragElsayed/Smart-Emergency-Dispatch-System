@@ -9,7 +9,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
 import java.util.Random;
 
 @Service
@@ -34,7 +33,7 @@ public class IncidentGeneratorService {
             incident.setNeeds(1 + RANDOM.nextInt(5));
             incident.setSeverityLevel(SEVERITIES[RANDOM.nextInt(SEVERITIES.length)]);
             incident.setStatus(IncidentStatus.PENDING);
-            incident.setReportedTime(LocalDateTime.now().minusMinutes(RANDOM.nextInt(60)));
+            incident.setReportedTime(System.currentTimeMillis()); // store actual creation time
             Incident saved = incidentRepository.save(incident);
             // Per-incident WebSocket broadcast removed to avoid flooding; a single consolidated broadcast is sent after generation.
         }

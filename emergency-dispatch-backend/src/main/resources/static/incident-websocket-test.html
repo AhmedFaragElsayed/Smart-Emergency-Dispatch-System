@@ -8,7 +8,7 @@
         .status { margin: 10px 0; padding: 8px; border-radius: 4px; font-weight: bold; }
         .connected { background: #d4edda; color: #155724; }
         .disconnected { background: #f8d7da; color: #721c24; }
-        #incidents, #units, #assignments, #completedIncidents {
+        #incidents, #units, #assignments, #completedIncidents, #overdueIncidents {
             margin-top: 20px;
             border: 2px solid #28a745;
             background: #eafaf1;
@@ -80,6 +80,9 @@
     <div id="assignmentCompleteMsg"><em>No completion messages yet.</em></div>
     <h3>Completed Incidents</h3>
     <div id="completedIncidents"><em>No completed incidents yet.</em></div>
+
+    <h3>Overdue Incidents (Pending > 2 min, No Assignment)</h3>
+    <div id="overdueIncidents"><em>No overdue incidents yet.</em></div>
 
     <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
     <script>
@@ -356,6 +359,41 @@
             };
         }
         connectCompletedIncidentsWebSocket();
+
+        // --- Overdue Incidents WebSocket ---
+        let overdueIncidents = [];
+        const overdueIncidentsDiv = document.getElementById('overdueIncidents');
+        const stompOverdueClient = new StompJs.Client({
+            brokerURL: 'ws://localhost:9696/ws'
+        });
+        stompOverdueClient.onConnect = function() {
+            stompOverdueClient.subscribe('/topic/incidents/overdue', function(message) {
+                overdueIncidents = JSON.parse(message.body);
+                renderOverdueIncidents();
+            });
+            // Request all overdue incidents on connect
+            stompOverdueClient.publish({destination: '/app/incidents.overdue', body: ''});
+            // Poll for overdue incidents every 10 seconds for real-time updates
+            setInterval(() => {
+                stompOverdueClient.publish({destination: '/app/incidents.overdue', body: ''});
+            }, 10000);
+        };
+        stompOverdueClient.activate();
+        function renderOverdueIncidents() {
+            if (!overdueIncidents.length) {
+                overdueIncidentsDiv.innerHTML = '<em>No overdue incidents yet.</em>';
+                return;
+            }
+            overdueIncidentsDiv.innerHTML = '';
+            overdueIncidents.forEach(inc => {
+                const div = document.createElement('div');
+                div.className = 'incident';
+                div.style.borderLeft = '4px solid #dc3545';
+                div.innerHTML = `<strong>Incident #${inc.incidentId}</strong> - <span>${inc.type}</span> <span class="meta">[${inc.severityLevel}]</span> <span style="color:#dc3545;font-weight:bold;margin-left:8px;">Overdue</span><br>
+                    <span class="meta">Needs: ${inc.needs}, Location: ${inc.latitude.toFixed(4)}, ${inc.longtitude.toFixed(4)}, Reported: ${inc.reportedTime}</span>`;
+                overdueIncidentsDiv.appendChild(div);
+            });
+        }
 
         // Fetch and display all incidents (including completed) on page load
         fetch('http://localhost:9696/api/incidents')

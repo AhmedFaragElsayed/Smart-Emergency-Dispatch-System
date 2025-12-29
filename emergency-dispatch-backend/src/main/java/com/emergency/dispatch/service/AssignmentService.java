@@ -1,7 +1,5 @@
 package com.emergency.dispatch.service;
 
-import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 
@@ -105,7 +103,7 @@ public class AssignmentService {
         assignment.setUser(user);
         assignment.setIncident(incident);
         assignment.setEmergencyUnit(emergencyUnit);
-        assignment.setAssignmentTime(LocalDate.now());
+        assignment.setAssignmentTime(System.currentTimeMillis()); // store actual assignment time in ms
         assignment.setIsActive(true);
         assignment.setResolutionTime(null);
         Assignment savedAssignment = assignmentRepository.save(assignment);
@@ -130,9 +128,8 @@ public class AssignmentService {
             throw new RuntimeException("Assignment is already inactive");
         }
 
-        // Set resolution time to now
-        LocalDate now = LocalDate.now();
-        assignment.setResolutionTime(now);
+        // Set resolution time to now (epoch ms)
+        assignment.setResolutionTime(System.currentTimeMillis());
         assignment.setIsActive(false);
 
         // Set emergency unit status to inactive
@@ -157,16 +154,15 @@ public class AssignmentService {
         Assignment assignment = assignmentRepository.findById(assignmentId)
                 .orElseThrow(() -> new RuntimeException("Assignment with ID " + assignmentId + " not found"));
 
+        Long assignmentTime = assignment.getAssignmentTime();
+        Long resolutionTime = assignment.getResolutionTime();
         if (assignment.getIsActive()) {
             // If still active, calculate days since assignment
-            LocalDate assignmentTime = assignment.getAssignmentTime();
-            return ChronoUnit.DAYS.between(assignmentTime, LocalDate.now());
+            return (System.currentTimeMillis() - assignmentTime) / (1000 * 60 * 60 * 24);
         } else {
             // If completed, calculate days between assignment and resolution
-            LocalDate assignmentTime = assignment.getAssignmentTime();
-            LocalDate resolutionTime = assignment.getResolutionTime();
             if (resolutionTime != null) {
-                return ChronoUnit.DAYS.between(assignmentTime, resolutionTime);
+                return (resolutionTime - assignmentTime) / (1000 * 60 * 60 * 24);
             }
             return null;
         }

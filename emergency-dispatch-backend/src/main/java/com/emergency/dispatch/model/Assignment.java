@@ -26,9 +26,9 @@ public class Assignment {
 @GeneratedValue(strategy = GenerationType.IDENTITY)    
 private Long assignmentId;
 @Column(name = "resolutionTime")
-private LocalDate resolutionTime;
+private Long resolutionTime; // epoch ms
 @Column (name = "AssignmentTime")
-private LocalDate assignmentTime;
+private Long assignmentTime; // epoch ms
 @ManyToOne
 @JoinColumn(name = "incidentId")
 @JsonIgnoreProperties({"assignments", "notifications"})

@@ -12,7 +12,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.emergency.dispatch.service.IncidentMonitorService;
+import com.emergency.dispatch.service.IOservice.IncidentMonService;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.transaction.annotation.Transactional;
 
 
 
@@ -22,13 +24,13 @@ import com.emergency.dispatch.service.IncidentMonitorService;
 public class IncidentMonitorController {
 
     @Autowired
-    private IncidentMonitorService monitorService;
+    private IncidentMonService monitorService;
 
     
     @GetMapping("/incidents")
-    public ResponseEntity<List<Map<String, Object>>> getAllIncidentsStatus() {
+    public ResponseEntity<java.util.List<com.emergency.dispatch.model.Incident>> getAllIncidentsStatus() {
         try {
-            List<Map<String, Object>> incidentsData = monitorService.getAllIncidentsWithStatus();
+            java.util.List<com.emergency.dispatch.model.Incident> incidentsData = monitorService.getOverdueIncidents();
             return ResponseEntity.ok(incidentsData);
         } catch (Exception e) {
             return ResponseEntity.internalServerError().build();
@@ -40,10 +42,15 @@ public class IncidentMonitorController {
 class IncidentMonitorWebSocketController {
 
     @Autowired
-    private IncidentMonitorService monitorService;
+    private IncidentMonService monitorService;
 
-    @MessageMapping("/monitor.requestAllIncidents")
-    public void requestAllIncidentsStatus() {
-        monitorService.broadcastAllIncidents();
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
+
+    @Transactional
+    @MessageMapping("/incidents.overdue")
+    public void sendOverdueIncidents() {
+        java.util.List<com.emergency.dispatch.model.Incident> overdue = monitorService.getOverdueIncidents();
+        messagingTemplate.convertAndSend("/topic/incidents/overdue", overdue);
     }
 }

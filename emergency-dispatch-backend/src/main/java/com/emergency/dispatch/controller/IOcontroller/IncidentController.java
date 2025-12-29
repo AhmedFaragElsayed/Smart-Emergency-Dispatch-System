@@ -59,12 +59,18 @@ public class IncidentController {
             }
             // Set default status to PENDING
             incident.setStatus(IncidentStatus.PENDING);
-            String reportedTimeStr = (String) incidentData.get("reportedTime");
-            if (reportedTimeStr != null) {
-                if (reportedTimeStr.length() == 10) {
-                    incident.setReportedTime(LocalDateTime.parse(reportedTimeStr + "T00:00:00"));
-                } else {
-                    incident.setReportedTime(LocalDateTime.parse(reportedTimeStr));
+            // Handle reportedTime as Long (epoch ms)
+            if (incidentData.containsKey("reportedTime")) {
+                Object reportedTimeObj = incidentData.get("reportedTime");
+                if (reportedTimeObj instanceof Number) {
+                    incident.setReportedTime(((Number) reportedTimeObj).longValue());
+                } else if (reportedTimeObj instanceof String) {
+                    try {
+                        incident.setReportedTime(Long.parseLong((String) reportedTimeObj));
+                    } catch (NumberFormatException e) {
+                        // fallback: ignore or set to current time
+                        incident.setReportedTime(System.currentTimeMillis());
+                    }
                 }
             }
             Incident createdIncident = incidentService.createIncident(incident);
@@ -141,13 +147,16 @@ public class IncidentController {
                 String statusStr = (String) incidentData.get("status");
                 incidentDetails.setStatus(IncidentStatus.valueOf(statusStr.toUpperCase()));
             }
+            // Handle reportedTime as Long (epoch ms)
             if (incidentData.containsKey("reportedTime")) {
-                String reportedTimeStr = (String) incidentData.get("reportedTime");
-                if (reportedTimeStr != null) {
-                    if (reportedTimeStr.length() == 10) {
-                        incidentDetails.setReportedTime(LocalDateTime.parse(reportedTimeStr + "T00:00:00"));
-                    } else {
-                        incidentDetails.setReportedTime(LocalDateTime.parse(reportedTimeStr));
+                Object reportedTimeObj = incidentData.get("reportedTime");
+                if (reportedTimeObj instanceof Number) {
+                    incidentDetails.setReportedTime(((Number) reportedTimeObj).longValue());
+                } else if (reportedTimeObj instanceof String) {
+                    try {
+                        incidentDetails.setReportedTime(Long.parseLong((String) reportedTimeObj));
+                    } catch (NumberFormatException e) {
+                        incidentDetails.setReportedTime(System.currentTimeMillis());
                     }
                 }
             }

@@ -46,8 +46,7 @@ public class Incident {
  @Column(name = "type")
  private IncidentType type;
  @Column(name = "reportedTime")
- @JsonFormat(pattern = "yyyy-MM-dd['T'HH:mm:ss]")
- private LocalDateTime reportedTime;
+ private Long reportedTime; // epoch ms
  @Enumerated(EnumType.STRING)
  @Column(name = "severityLevel")
  private SeverityLevel severityLevel;
