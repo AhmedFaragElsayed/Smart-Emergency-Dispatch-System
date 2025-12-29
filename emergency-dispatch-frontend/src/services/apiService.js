@@ -128,6 +128,48 @@ class ApiService {
     }
   }
 
+  async fetchDispatchMetrics(params = {}) {
+    const { from, to, topN, heatmapK } = params;
+    try {
+      const query = new URLSearchParams();
+      if (from) query.append('from', from);
+      if (to) query.append('to', to);
+      if (topN) query.append('topN', topN);
+      if (heatmapK) query.append('heatmapK', heatmapK);
+      const url = `${API_BASE_URL}/analytics/dispatch${query.toString() ? '?' + query.toString() : ''}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`Failed to fetch analytics metrics (Status: ${response.status}) ${text}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching dispatch metrics:', error);
+      throw error;
+    }
+  }
+
+  async downloadDispatchReportPdf(params = {}) {
+    const { from, to, topN, heatmapK } = params;
+    try {
+      const query = new URLSearchParams();
+      if (from) query.append('from', from);
+      if (to) query.append('to', to);
+      if (topN) query.append('topN', topN);
+      if (heatmapK) query.append('heatmapK', heatmapK);
+      const url = `${API_BASE_URL}/reports/dispatch/pdf${query.toString() ? '?' + query.toString() : ''}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`Failed to download PDF (Status: ${response.status}) ${text}`);
+      }
+      return await response.blob();
+    } catch (error) {
+      console.error('Error downloading dispatch report PDF:', error);
+      throw error;
+    }
+  }
+
   async createUser(userData) {
     const response = await fetch(`${API_BASE_URL}/users`, {
       method: 'POST',
