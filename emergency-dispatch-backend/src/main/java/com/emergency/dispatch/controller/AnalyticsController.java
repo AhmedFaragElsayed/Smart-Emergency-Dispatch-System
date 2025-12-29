@@ -10,6 +10,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/analytics")
 public class AnalyticsController {
@@ -32,17 +35,10 @@ public class AnalyticsController {
             return ResponseEntity.ok(metrics);
         } catch (Exception e) {
             e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Error generating analytics", "message", e.getMessage()));
-        }
-    }
-
-    private static class Map {
-        static java.util.Map<String, String> of(String k1, String v1, String k2, String v2) {
-            java.util.Map<String, String> m = new java.util.HashMap<>();
-            m.put(k1, v1);
-            m.put(k2, v2);
-            return m;
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("error", "Error generating analytics");
+            errorResponse.put("message", e.getMessage() != null ? e.getMessage() : "Unknown error");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
     }
 }
