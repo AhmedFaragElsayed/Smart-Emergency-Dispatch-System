@@ -31,8 +31,8 @@ public class EmergencyUnitGeneratorService {
         for (int i = 0; i < count; i++) {
             EmergencyUnit unit = new EmergencyUnit();
             unit.setType(types[rand.nextInt(types.length)]);
-            unit.setLatitude(40.7000 + rand.nextDouble() * 0.13); // Manhattan: 40.7000–40.8300
-            unit.setLongtitude(-74.0200 + rand.nextDouble() * 0.12); // Manhattan: -74.0200–-73.9000
+            unit.setLatitude(36.04 + rand.nextDouble() * (36.27 - 36.04)); // Las Vegas bounds, match incidents
+            unit.setLongtitude(-115.29 + rand.nextDouble() * (-115.04 - (-115.29))); // Las Vegas bounds, match incidents
             unit.setCapacity(rand.nextInt(5) + 1); // Capacity 1-5
             unit.setStatus(true); 
             EmergencyUnit savedUnit = emergencyUnitRepository.save(unit);
