@@ -37,6 +37,8 @@ public class SimulationService {
     private AssignmentRepository assignmentRepository;
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
+    @Autowired
+    private DoneAssignmentService doneAssignmentService;
 
 
     private final RestTemplate restTemplate = new RestTemplate();
@@ -212,6 +214,39 @@ public class SimulationService {
                 }
             } else {
                 activeRoutes.remove(unitId);
+                
+                // Retrieve unit to find its assignment
+                emergencyUnitRepository.findById(unitId).ifPresent(unit -> {
+                    java.util.List<Assignment> activeAssignments = assignmentRepository.findByEmergencyUnitAndIsActiveTrue(unit);
+                    
+                    if (!activeAssignments.isEmpty()) {
+                        Assignment assignment = activeAssignments.get(0);
+                        Long incidentId = assignment.getIncident().getIncidentId();
+
+                        // Start async task to simulate work and then resolve
+                        CompletableFuture.runAsync(() -> {
+                            try {
+                                // Random sleep between 1s (1000ms) and 30s (30000ms)
+                                long workDuration = (long) (Math.random() * 29000) + 1000;
+                                System.out.println("[Simulation] Unit " + unitId + " arrived at Incident " + incidentId + ". Working for " + workDuration + "ms...");
+                                Thread.sleep(workDuration);
+                                
+                                // Mark assignment as done using DoneAssignmentService
+                                doneAssignmentService.completeAssignmentByIncidentId(incidentId);
+                                System.out.println("[Simulation] Incident " + incidentId + " resolved by Unit " + unitId);
+
+                                // Broadcast updates so UI reflects completion
+                                messagingTemplate.convertAndSend("/topic/assignments/all", assignmentRepository.findAll());
+                                messagingTemplate.convertAndSend("/topic/emergency-units", emergencyUnitRepository.findAll());
+                                messagingTemplate.convertAndSend("/topic/incidents", incidentRepository.findAll());
+                                
+                            } catch (Exception e) {
+                                System.err.println("[Simulation] Error completing assignment: " + e.getMessage());
+                                e.printStackTrace();
+                            }
+                        });
+                    }
+                });
             }
         });
 
