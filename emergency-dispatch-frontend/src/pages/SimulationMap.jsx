@@ -17,6 +17,8 @@ L.Icon.Default.mergeOptions({
 import '../styles/SimulationMap.css';
 
 const API_BASE = 'http://localhost:9696';
+// Use the new Polling endpoint we created in the Controller
+const POLLING_ENDPOINT = `${API_BASE}/api/monitor/unit-locations/poll`;
 const REDIS_LOCATIONS_ENDPOINT = `${API_BASE}/api/monitor/unit-locations/redis`;
 
 // Las Vegas bounds (approx)
@@ -54,6 +56,10 @@ export default function SimulationMap() {
   const simActivityTimerRef = useRef(null);
   // If user explicitly started the simulation via the UI, keep indicator on until they stop it
   const explicitSimStartRef = useRef(false);
+
+  // --- NEW: Ref for Polling Interval ---
+  const pollIntervalRef = useRef(null);
+  const POLLING_INTERVAL_MS = 1000; // Poll every 1 second
 
   useEffect(() => {
     // Initialize map (center Manhattan)
@@ -249,7 +255,11 @@ export default function SimulationMap() {
         console.error('Error processing assignment(s)', e);
       }
 
-      // Refresh enriched incidents view to ensure counts/status are accurate
+      // --- OPTIMIZATION: COMMENTED OUT REDUNDANT FETCHES ---
+      // The backend now sends explicit 'incidentUpdate' messages via WebSocket
+      // when assignments change, so we don't need to fetch the entire list again.
+      // This prevents "Self-DDoS" when 500 incidents exist.
+      /*
       try {
         const res = await fetch(`${API_BASE}/api/monitor/incidents`);
         if (res.ok) {
@@ -260,8 +270,6 @@ export default function SimulationMap() {
         console.warn('Failed to refresh enriched incidents after assignment update', e);
       }
 
-      // Refresh unit metadata (type/status) WITHOUT position updates.
-      // Positions come only from Redis batches to avoid DB-sourced coordinate jumps.
       try {
         const res2 = await fetch(`${API_BASE}/api/monitor/units`);
         if (res2.ok) {
@@ -279,6 +287,7 @@ export default function SimulationMap() {
       } catch (e) {
         console.warn('Failed to refresh unit metadata after assignment update', e);
       }
+      */
     };
 
     const handleConnect = () => setConnected(true);
@@ -323,13 +332,32 @@ export default function SimulationMap() {
       initialLocationsLoadedRef.current = true;
     };
 
+    // --- NEW: POLLING SETUP ---
+    // Start Polling Loop for locations (replaces WebSocket for high-frequency updates)
+    pollIntervalRef.current = setInterval(async () => {
+      // if (!simulationRunning) return; // Optional: Only poll if running
+      try {
+        const res = await fetch(POLLING_ENDPOINT);
+        if (res.ok) {
+          const data = await res.json();
+          // Call directly without bumping sim activity to avoid recursive loops
+          handleLocationBatch(data); 
+        }
+      } catch (e) {
+        console.warn("Polling error:", e);
+      }
+    }, POLLING_INTERVAL_MS);
+
     // Wrap certain handlers to also mark simulation activity
     const handleAssignmentUpdateWithActivity = (a) => { bumpSimActivity(); handleAssignmentUpdate(a); };
     const handleAssignmentsListWithActivity = (list) => { bumpSimActivity(); handleAssignmentUpdate(list); };
     const handleUnitUpdateWithActivity = (u) => { bumpSimActivity(); handleUnitUpdate(u); };
     const handleIncidentAdded = (inc) => { handleIncident(inc); };
     const handleIncidentsMonitorList = (list) => { if (Array.isArray(list)) applyEnrichedIncidents(list); };
-    const handleLocationBatchWithActivity = (batch) => { bumpSimActivity(); handleLocationBatch(batch); };
+    
+    // NOTE: WebSocket listener for 'locationBatch' is removed in favor of Polling above
+    // const handleLocationBatchWithActivity = (batch) => { bumpSimActivity(); handleLocationBatch(batch); };
+
     // When a raw incidents list is received from the simulation, request the enriched incident view
     // (includes active assignment counts and status) and apply it atomically to the map.
     const handleIncidentsList = async (list) => {
@@ -358,7 +386,7 @@ export default function SimulationMap() {
     websocketService.on('incidentUpdate', (i) => { handleIncidentUpdate(i); });
     websocketService.on('assignmentUpdate', handleAssignmentUpdateWithActivity);
     websocketService.on('assignmentsList', handleAssignmentsListWithActivity);
-    websocketService.on('locationBatch', handleLocationBatchWithActivity);
+    // websocketService.on('locationBatch', handleLocationBatchWithActivity); // <-- DISABLED (Using Polling)
     websocketService.on('connected', handleConnect);
     websocketService.on('disconnected', handleDisconnect);
 
@@ -382,7 +410,7 @@ export default function SimulationMap() {
           console.warn('Redis location snapshot endpoint unavailable, status:', res.status);
         }
       } catch (e) {
-        console.warn('Failed to fetch Redis-backed unit locations; relying on WebSocket batches', e);
+        console.warn('Failed to fetch Redis-backed unit locations; relying on Polling', e);
       }
     })();
 
@@ -406,13 +434,16 @@ export default function SimulationMap() {
       websocketService.off('incidentUpdate');
       websocketService.off('assignmentUpdate', handleAssignmentUpdateWithActivity);
       websocketService.off('assignmentsList', handleAssignmentsListWithActivity);
-      websocketService.off('locationBatch', handleLocationBatchWithActivity);
+      // websocketService.off('locationBatch', handleLocationBatchWithActivity); // <-- DISABLED
       websocketService.off('connected', handleConnect);
       websocketService.off('disconnected', handleDisconnect);
+      
+      // Cleanup Polling
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
       if (simActivityTimerRef.current) { clearInterval(simActivityTimerRef.current); simActivityTimerRef.current = null; }
       if (mapRef.current) mapRef.current.remove();
     };
-  }, []);
+  }, []); // Re-run once on mount
 
   // Sync map control input value with React state
   useEffect(() => {
