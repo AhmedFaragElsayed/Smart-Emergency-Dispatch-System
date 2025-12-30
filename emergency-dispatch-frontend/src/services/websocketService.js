@@ -185,6 +185,17 @@ class WebSocketService {
       this.notifyListeners('notification', notification);
     });
 
+    // Subscribe to overdue incidents (backend uses /topic/incidents/overdue)
+    this.subscribe('/topic/incidents/overdue', (message) => {
+      try {
+        const body = JSON.parse(message.body);
+        console.log('Received overdue incidents:', body);
+        this.notifyListeners('incidentsOverdue', body);
+      } catch (e) {
+        console.error('Failed to parse overdue incidents message', e);
+      }
+    });
+
     // Subscribe to location updates
     this.subscribe('/topic/location-updates', (message) => {
       const locationUpdate = JSON.parse(message.body);
@@ -284,6 +295,36 @@ class WebSocketService {
     this.notifications.splice(index, 1);
   }
 
+  // Remove notification by id (safer when indices shift)
+  removeNotificationById(notificationId) {
+    const idx = this.notifications.findIndex(n => n.notificationId === notificationId || n.notificationId == notificationId);
+    if (idx !== -1) this.notifications.splice(idx, 1);
+  }
+
+  // Add a notification to the store and notify listeners
+  addNotification(notification) {
+    try {
+      const incidentId = notification && notification.incident && (notification.incident.incidentId || notification.incident.id);
+      if (incidentId) {
+        const exists = this.notifications.find(n => n.incident && (n.incident.incidentId == incidentId || n.incident.id == incidentId) || n.notificationId === notification.notificationId);
+        if (exists) {
+          exists.notificationTime = notification.notificationTime || exists.notificationTime;
+          exists.message = notification.message || exists.message;
+          this.notifyListeners('notificationUpdated', exists);
+          return exists;
+        }
+      } else {
+        const exists = this.notifications.find(n => n.notificationId === notification.notificationId || n.message === notification.message);
+        if (exists) return exists;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    this.notifications.unshift(notification);
+    this.notifyListeners('notification', notification);
+  }
+
   // Mark notification as read
   markAsRead(notificationId) {
     this.readNotificationIds.add(notificationId);
@@ -308,8 +349,18 @@ class WebSocketService {
       !this.readNotificationIds.has(n.notificationId)
     ).length;
   }
+
+  // Dev helper: simulate overdue incidents (calls listeners directly)
+  simulateOverdue(incidents) {
+    // incidents can be an array or single object
+    this.notifyListeners('incidentsOverdue', incidents);
+  }
 }
 
 // Export singleton instance
 const websocketService = new WebSocketService();
+// Expose in browser for easy manual testing via DevTools
+if (typeof window !== 'undefined') {
+  try { window.websocketService = websocketService; } catch (e) { /* no-op */ }
+}
 export default websocketService;

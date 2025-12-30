@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import NotificationBell from '../components/NotificationBell';
+import OverdueAlert from '../components/OverdueAlert';
 import '../styles/adminDashBoard.css';
 
 function AdminDashBoard() {
@@ -15,6 +16,7 @@ function AdminDashBoard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <span style={{ color: 'white', fontWeight: '600' }}>Welcome, {user?.userName || 'User'}</span>
             <NotificationBell />
+            <OverdueAlert />
             <button 
               onClick={() => { logout(); navigate('/signin'); }}
               style={{

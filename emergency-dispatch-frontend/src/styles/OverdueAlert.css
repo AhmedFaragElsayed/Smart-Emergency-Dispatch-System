@@ -1,0 +1,36 @@
+.overdue-alerts-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 2000;
+}
+
+.overdue-alert-item {
+  background: #fff8f8;
+  border-left: 6px solid #e74c3c;
+  padding: 12px 14px;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+  min-width: 300px;
+}
+
+.overdue-alert-message {
+  font-weight: 700;
+  color: #2c3e50;
+}
+
+.overdue-alert-meta { display:flex; justify-content:flex-end; margin-top:8px }
+.overdue-dismiss { background:transparent; border:none; color:#e74c3c; font-weight:600; cursor:pointer }
+
+.overdue-collapsed-pill {
+  background: #fff8f0;
+  border: 1px solid #e0a899;
+  padding: 8px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+  font-weight: 700;
+}

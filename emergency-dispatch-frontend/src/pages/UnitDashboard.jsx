@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import apiService from '../services/apiService';
 import websocketService from '../services/websocketService';
 import NotificationBell from '../components/NotificationBell';
+import OverdueAlert from '../components/OverdueAlert';
 import '../styles/UnitDashboard.css';
 
 const UnitDashboard = () => {
@@ -118,6 +119,7 @@ const UnitDashboard = () => {
         <h1>🚑 Emergency Unit Management</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <NotificationBell />
+          <OverdueAlert />
           <button 
             className="btn-primary" 
             onClick={() => setIsFormVisible(!isFormVisible)}

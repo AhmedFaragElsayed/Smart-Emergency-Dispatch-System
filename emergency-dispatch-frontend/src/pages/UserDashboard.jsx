@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiService from '../services/apiService';
 import NotificationBell from '../components/NotificationBell';
+import OverdueAlert from '../components/OverdueAlert';
 import '../styles/UserDashboard.css';
 
 const UserDashboard = () => {
@@ -96,6 +97,7 @@ const UserDashboard = () => {
         <h1>👨‍💼 User Management</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <NotificationBell />
+          <OverdueAlert />
           <button 
             className="btn-primary" 
             onClick={() => setIsFormVisible(!isFormVisible)}
