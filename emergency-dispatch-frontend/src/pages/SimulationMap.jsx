@@ -34,8 +34,6 @@ function randomLasVegas() {
 export default function SimulationMap() {
   const mapRef = useRef(null);
   const markersRef = useRef({ units: new Map(), incidents: new Map() });
-  const polylinesRef = useRef(new Map()); // Store polylines for unit routes
-  const routePathsRef = useRef(new Map()); // Store full route paths for each unit
   const isGeneratingUnitsRef = useRef(false); // Suppress sim-activity during manual unit generation
   const generatedTargetsRef = useRef(new Map()); // Track desired locations for newly-generated units (to avoid visual jitter)
 
@@ -137,11 +135,6 @@ export default function SimulationMap() {
     };
 
     const handleUnitUpdate = (unit) => addOrUpdateUnit(unit);
-    const handleUnitLocation = (update) => {
-      addOrUpdateUnit({ unitID: update.unitId, latitude: update.latitude, longtitude: update.longtitude, type: update.type, status: update.status });
-      // Update the route polyline to show only remaining path
-      updateRoutePolyline(update.unitId, update.latitude, update.longtitude);
-    };
     const handleIncident = (inc) => {
       // Place the incident directly at a Las Vegas coordinate to avoid visual flicker.
       const coords = randomLasVegas();
@@ -291,97 +284,12 @@ export default function SimulationMap() {
       }
     };
 
-    // Handle unit route path visualization
-    const handleUnitRoute = (routeData) => {
-      if (!routeData || !routeData.unitId || !routeData.path) return;
-      
-      const unitId = routeData.unitId;
-      const incidentType = routeData.incidentType;
-      const pathCoordinates = routeData.path;
-      
-      // Remove existing polyline if it exists
-      if (polylinesRef.current.has(unitId)) {
-        try {
-          mapRef.current.removeLayer(polylinesRef.current.get(unitId));
-        } catch (e) { /* ignore */ }
-      }
-      
-      // Create polyline for the route
-      if (Array.isArray(pathCoordinates) && pathCoordinates.length > 0) {
-        // Convert path coordinates to Leaflet LatLng format
-        const latLngs = pathCoordinates.map(coord => [coord[0], coord[1]]);
-        
-        // Get the color based on incident type (same as incident marker color)
-        let routeColor = '#3388ff'; // default blue
-        if (incidentType) {
-          const type = incidentType.toString().toUpperCase();
-          if (type.includes('FIRE')) routeColor = '#ff0000';
-          else if (type.includes('POLICE')) routeColor = '#0000ff';
-          else if (type.includes('AMBULANCE')) routeColor = '#00aa00';
-        }
-        
-        const polyline = L.polyline(latLngs, {
-          color: routeColor,
-          weight: 3,
-          opacity: 0.7,
-          dashArray: '5, 5'
-        }).addTo(mapRef.current);
-        
-        // Add a popup showing the route info
-        polyline.bindPopup(`<strong>Unit #${unitId} Route</strong><br/>Type: ${incidentType}<br/>Waypoints: ${latLngs.length}`);
-        
-        polylinesRef.current.set(unitId, polyline);
-        routePathsRef.current.set(unitId, latLngs); // Store full path for dynamic updates
-        console.log('[SimulationMap] Route polyline added for Unit', unitId, 'with', latLngs.length, 'points');
-      }
-    };
-
-    // Update polyline as unit moves along the route
-    const updateRoutePolyline = (unitId, currentLat, currentLon) => {
-      const fullPath = routePathsRef.current.get(unitId);
-      const existingPolyline = polylinesRef.current.get(unitId);
-      
-      if (!fullPath || !existingPolyline || fullPath.length === 0) return;
-      
-      // Find the closest waypoint to the current unit position (start of remaining path)
-      let closestIndex = 0;
-      let closestDistance = Number.MAX_VALUE;
-      
-      for (let i = 0; i < fullPath.length; i++) {
-        const waypoint = fullPath[i];
-        const distance = Math.pow(waypoint[0] - currentLat, 2) + Math.pow(waypoint[1] - currentLon, 2);
-        if (distance < closestDistance) {
-          closestDistance = distance;
-          closestIndex = i;
-        }
-      }
-      
-      // Create remaining path starting from current position and continuing forward
-      const remainingPath = fullPath.slice(closestIndex);
-      
-      // If we've reached the end of the route, remove the polyline
-      if (remainingPath.length <= 1) {
-        try {
-          mapRef.current.removeLayer(existingPolyline);
-        } catch (e) { /* ignore */ }
-        polylinesRef.current.delete(unitId);
-        routePathsRef.current.delete(unitId);
-        console.log('[SimulationMap] Route completed for Unit', unitId);
-        return;
-      }
-      
-      // Update polyline with remaining path
-      existingPolyline.setLatLngs(remainingPath);
-      console.log('[SimulationMap] Route updated for Unit', unitId, '- remaining waypoints:', remainingPath.length);
-    };
-
-
     // Full list broadcasts (units/incidents/assignments) are not treated as simulation activity
     // so refreshing or connecting legacy test pages doesn't flip the simulation badge.
     websocketService.on('unitsList', handleUnitsList);
     websocketService.on('unitUpdate', (u) => { bumpSimActivity(); handleUnitUpdate(u); });
-    websocketService.on('unitLocation', (loc) => { bumpSimActivity(); handleUnitLocation(loc); });
-    websocketService.on('unitRoute', (route) => { bumpSimActivity(); handleUnitRoute(route); });
+    websocketService.on('unitLocation', () => { /* ignored - frequent location updates disabled */ });
+    websocketService.on('unitRoute', () => { /* ignored - route visualization disabled */ });
     websocketService.on('incidentAdded', (inc) => { handleIncident(inc); });
     websocketService.on('incidentsList', handleIncidentsList);
     websocketService.on('incidentsMonitorList', (list) => { if (Array.isArray(list)) applyEnrichedIncidents(list); });
@@ -426,12 +334,6 @@ export default function SimulationMap() {
       websocketService.off('assignmentsList', handleAssignmentsListWithActivity);
       websocketService.off('connected', handleConnect);
       websocketService.off('disconnected', handleDisconnect);
-      // Clean up polylines
-      polylinesRef.current.forEach((polyline) => {
-        try { mapRef.current.removeLayer(polyline); } catch (e) { /* ignore */ }
-      });
-      polylinesRef.current.clear();
-      routePathsRef.current.clear();
       if (simActivityTimerRef.current) { clearInterval(simActivityTimerRef.current); simActivityTimerRef.current = null; }
       if (mapRef.current) mapRef.current.remove();
     };

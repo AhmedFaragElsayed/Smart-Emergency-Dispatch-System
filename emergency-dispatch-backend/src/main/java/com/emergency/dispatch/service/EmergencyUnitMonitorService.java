@@ -51,8 +51,8 @@ public class EmergencyUnitMonitorService {
                 Map<String, Object> assignmentInfo = new HashMap<>();
                 assignmentInfo.put("assignmentId", activeAssignment.getAssignmentId());
                 assignmentInfo.put("assignmentTime", activeAssignment.getAssignmentTime());
-                assignmentInfo.put("userId", activeAssignment.getUser().getUserID());
-                assignmentInfo.put("userName", activeAssignment.getUser().getUserName());
+                assignmentInfo.put("userId", activeAssignment.getUser() != null ? activeAssignment.getUser().getUserID() : null);
+                assignmentInfo.put("userName", activeAssignment.getUser() != null ? activeAssignment.getUser().getUserName() : null);
                 assignmentInfo.put("incidentId", activeAssignment.getIncident().getIncidentId());
                 assignmentInfo.put("incidentType", activeAssignment.getIncident().getType());
                 assignmentInfo.put("incidentSeverity", activeAssignment.getIncident().getSeverityLevel());
@@ -95,8 +95,8 @@ public class EmergencyUnitMonitorService {
                 Map<String, Object> assignmentInfo = new HashMap<>();
                 assignmentInfo.put("assignmentId", activeAssignment.getAssignmentId());
                 assignmentInfo.put("assignmentTime", activeAssignment.getAssignmentTime());
-                assignmentInfo.put("userId", activeAssignment.getUser().getUserID());
-                assignmentInfo.put("userName", activeAssignment.getUser().getUserName());
+                assignmentInfo.put("userId", activeAssignment.getUser() != null ? activeAssignment.getUser().getUserID() : null);
+                assignmentInfo.put("userName", activeAssignment.getUser() != null ? activeAssignment.getUser().getUserName() : null);
                 assignmentInfo.put("incidentId", activeAssignment.getIncident().getIncidentId());
                 assignmentInfo.put("incidentType", activeAssignment.getIncident().getType());
                 assignmentInfo.put("incidentSeverity", activeAssignment.getIncident().getSeverityLevel());
