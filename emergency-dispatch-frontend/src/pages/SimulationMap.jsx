@@ -17,6 +17,7 @@ L.Icon.Default.mergeOptions({
 import '../styles/SimulationMap.css';
 
 const API_BASE = 'http://localhost:9696';
+const REDIS_LOCATIONS_ENDPOINT = `${API_BASE}/api/monitor/unit-locations/redis`;
 
 // Las Vegas bounds (approx)
 const LAS_VEGAS_BOUNDS = {
@@ -36,6 +37,12 @@ export default function SimulationMap() {
   const markersRef = useRef({ units: new Map(), incidents: new Map() });
   const isGeneratingUnitsRef = useRef(false); // Suppress sim-activity during manual unit generation
   const generatedTargetsRef = useRef(new Map()); // Track desired locations for newly-generated units (to avoid visual jitter)
+  const unitMetaRef = useRef(new Map()); // Cache unit type/status so Redis-only location batches can reuse metadata
+  const initialLocationsLoadedRef = useRef(false);
+
+  // Performance: disable smooth animations when processing very large batches
+  const disableSmoothMovementRef = useRef(false);
+  const MAX_ANIMATE_UNITS = 120; // If a location batch contains more than this many units, skip animations
 
   const [connected, setConnected] = useState(websocketService.isConnected());
   const [unitCount, setUnitCount] = useState(3);
@@ -128,10 +135,17 @@ export default function SimulationMap() {
 
     // Handlers
     const handleUnitsList = (units) => {
-      // clear existing unit markers (stop any running animations first)
-      markersRef.current.units.forEach(m => { try { if (m && m._moveAnimation) { m._moveAnimation.cancelled = true; m._moveAnimation = null; } mapRef.current.removeLayer(m); } catch(e) { /* ignore */ } });
-      markersRef.current.units.clear();
-      units.forEach(addOrUpdateUnit);
+      if (!Array.isArray(units)) return;
+      units.forEach(u => {
+        const id = u.unitID ?? u.unitId ?? u.id;
+        if (id == null) return;
+        const meta = updateUnitMeta({ unitID: id, type: u.type, status: u.status });
+        const marker = markersRef.current.units.get(id);
+        // Update opacity to reflect availability without moving the marker
+        if (marker && typeof meta?.resolvedStatus === 'boolean' && typeof marker.setOpacity === 'function') {
+          marker.setOpacity(meta.resolvedStatus ? 1.0 : 0.5);
+        }
+      });
     };
 
     const handleUnitUpdate = (unit) => addOrUpdateUnit(unit);
@@ -181,19 +195,25 @@ export default function SimulationMap() {
     const processAssignment = (assignment) => {
       if (!assignment) return;
       try {
-        // If the assignment includes the emergencyUnit object, update that unit immediately
+        // If the assignment includes the emergencyUnit object, update metadata only (not position)
+        // to avoid DB-sourced coordinate jumps. Positions come only from Redis batches.
         if (assignment.emergencyUnit) {
-          addOrUpdateUnit({
-            unitID: assignment.emergencyUnit.unitID || assignment.emergencyUnit.unitId || assignment.emergencyUnit.unitID,
-            latitude: assignment.emergencyUnit.latitude,
-            longtitude: assignment.emergencyUnit.longtitude,
-            type: assignment.emergencyUnit.type,
-            status: assignment.emergencyUnit.status
-          });
+          const unitId = assignment.emergencyUnit.unitID || assignment.emergencyUnit.unitId;
+          updateUnitMeta({ unitID: unitId, type: assignment.emergencyUnit.type, status: assignment.emergencyUnit.status });
+          const marker = markersRef.current.units.get(unitId);
+          if (marker && typeof marker.setOpacity === 'function') {
+            marker.setOpacity(assignment.emergencyUnit.status ? 1.0 : 0.5);
+          }
         } else if (assignment.unitId || assignment.emergencyUnitId) {
-          // fetch updated unit details if only ID provided
+          // Fetch updated unit metadata (not position) if only ID provided
           const uid = assignment.unitId || assignment.emergencyUnitId;
-          fetch(`${API_BASE}/api/emergency-units/${uid}`).then(r => r.json()).then(u => addOrUpdateUnit(u)).catch(e => console.warn('Failed to fetch unit for assignment update', e));
+          fetch(`${API_BASE}/api/emergency-units/${uid}`).then(r => r.json()).then(u => {
+            updateUnitMeta({ unitID: u.unitID, type: u.type, status: u.status });
+            const marker = markersRef.current.units.get(u.unitID);
+            if (marker && typeof marker.setOpacity === 'function') {
+              marker.setOpacity(u.status ? 1.0 : 0.5);
+            }
+          }).catch(e => console.warn('Failed to fetch unit metadata for assignment update', e));
         }
 
         // If the assignment includes incident details, update the incident marker
@@ -240,18 +260,24 @@ export default function SimulationMap() {
         console.warn('Failed to refresh enriched incidents after assignment update', e);
       }
 
-      // Also refresh units monitor to get accurate unit status (busy/available)
+      // Refresh unit metadata (type/status) WITHOUT position updates.
+      // Positions come only from Redis batches to avoid DB-sourced coordinate jumps.
       try {
         const res2 = await fetch(`${API_BASE}/api/monitor/units`);
         if (res2.ok) {
           const units = await res2.json();
           if (Array.isArray(units)) {
-            // reuse existing handler that clears and adds units
-            handleUnitsList(units.map(u => ({ unitID: u.unitID, latitude: u.latitude, longtitude: u.longtitude, type: u.type, status: u.status })));
+            units.forEach(u => {
+              updateUnitMeta({ unitID: u.unitID, type: u.type, status: u.status });
+              const marker = markersRef.current.units.get(u.unitID);
+              if (marker && typeof marker.setOpacity === 'function') {
+                marker.setOpacity(u.status ? 1.0 : 0.5);
+              }
+            });
           }
         }
       } catch (e) {
-        console.warn('Failed to refresh units after assignment update', e);
+        console.warn('Failed to refresh unit metadata after assignment update', e);
       }
     };
 
@@ -264,10 +290,46 @@ export default function SimulationMap() {
       lastSimActivityRef.current = Date.now();
     };
 
+    const handleLocationBatch = (batch) => {
+      if (!batch) return;
+      const keys = Object.keys(batch || {});
+      const batchSize = keys.length;
+      // If batch is very large, skip smooth animations to avoid overloading the main thread
+      disableSmoothMovementRef.current = (batchSize > MAX_ANIMATE_UNITS);
+
+      keys.forEach((unitIdKey) => {
+        const value = batch[unitIdKey];
+        const lat = parseFloat(value.lat ?? value.latitude);
+        const lon = parseFloat(value.lon ?? value.long ?? value.longitude);
+        if (!isFinite(lat) || !isFinite(lon)) return;
+
+        const numericId = Number.parseInt(unitIdKey, 10);
+        const resolvedId = Number.isNaN(numericId) ? unitIdKey : numericId;
+        const cached = unitMetaRef.current.get(resolvedId) || {};
+        addOrUpdateUnit({
+          unitID: resolvedId,
+          latitude: lat,
+          longtitude: lon,
+          type: cached.type,
+          status: typeof cached.status === 'boolean' ? cached.status : undefined
+        });
+      });
+
+      // Re-enable smooth movement shortly after processing to restore smoothness for small updates
+      if (disableSmoothMovementRef.current) {
+        setTimeout(() => { disableSmoothMovementRef.current = false; }, 1000);
+      }
+
+      initialLocationsLoadedRef.current = true;
+    };
+
     // Wrap certain handlers to also mark simulation activity
-    const handleUnitsListWithActivity = (units) => { bumpSimActivity(); handleUnitsList(units); };
     const handleAssignmentUpdateWithActivity = (a) => { bumpSimActivity(); handleAssignmentUpdate(a); };
     const handleAssignmentsListWithActivity = (list) => { bumpSimActivity(); handleAssignmentUpdate(list); };
+    const handleUnitUpdateWithActivity = (u) => { bumpSimActivity(); handleUnitUpdate(u); };
+    const handleIncidentAdded = (inc) => { handleIncident(inc); };
+    const handleIncidentsMonitorList = (list) => { if (Array.isArray(list)) applyEnrichedIncidents(list); };
+    const handleLocationBatchWithActivity = (batch) => { bumpSimActivity(); handleLocationBatch(batch); };
     // When a raw incidents list is received from the simulation, request the enriched incident view
     // (includes active assignment counts and status) and apply it atomically to the map.
     const handleIncidentsList = async (list) => {
@@ -287,30 +349,42 @@ export default function SimulationMap() {
     // Full list broadcasts (units/incidents/assignments) are not treated as simulation activity
     // so refreshing or connecting legacy test pages doesn't flip the simulation badge.
     websocketService.on('unitsList', handleUnitsList);
-    websocketService.on('unitUpdate', (u) => { bumpSimActivity(); handleUnitUpdate(u); });
+    websocketService.on('unitUpdate', handleUnitUpdateWithActivity);
     websocketService.on('unitLocation', () => { /* ignored - frequent location updates disabled */ });
     websocketService.on('unitRoute', () => { /* ignored - route visualization disabled */ });
-    websocketService.on('incidentAdded', (inc) => { handleIncident(inc); });
+    websocketService.on('incidentAdded', handleIncidentAdded);
     websocketService.on('incidentsList', handleIncidentsList);
-    websocketService.on('incidentsMonitorList', (list) => { if (Array.isArray(list)) applyEnrichedIncidents(list); });
+    websocketService.on('incidentsMonitorList', handleIncidentsMonitorList);
     websocketService.on('incidentUpdate', (i) => { handleIncidentUpdate(i); });
-    websocketService.on('assignmentUpdate', (a) => { bumpSimActivity(); handleAssignmentUpdate(a); });
-    websocketService.on('assignmentsList', (list) => { handleAssignmentUpdate(list); });
+    websocketService.on('assignmentUpdate', handleAssignmentUpdateWithActivity);
+    websocketService.on('assignmentsList', handleAssignmentsListWithActivity);
+    websocketService.on('locationBatch', handleLocationBatchWithActivity);
     websocketService.on('connected', handleConnect);
     websocketService.on('disconnected', handleDisconnect);
 
-    // Try to get initial units and incidents via HTTP (fallback)
-    // Prefer monitor endpoint which includes assignment status for units
+    // Prime unit metadata (type/status) without moving markers from stale DB coordinates
     fetch(`${API_BASE}/api/monitor/units`).then(r => r.json()).then(units => {
       if (Array.isArray(units)) {
-        // The monitor returns maps with unitID and status, so reuse addOrUpdateUnit
-        units.forEach(u => addOrUpdateUnit({ unitID: u.unitID, latitude: u.latitude, longtitude: u.longtitude, type: u.type, status: u.status }));
+        units.forEach(u => updateUnitMeta({ unitID: u.unitID, type: u.type, status: u.status }));
       }
     }).catch(e => {
-      // fallback
-      fetch(`${API_BASE}/api/emergency-units`).then(r => r.json()).then(units => { units.forEach(addOrUpdateUnit); }).catch(e => console.warn('Error fetching units', e));
-      console.warn('Error fetching enriched units', e);
+      console.warn('Error fetching unit metadata from monitor endpoint', e);
     });
+
+    // Seed initial positions directly from Redis (same source as real-time batches)
+    (async () => {
+      try {
+        const res = await fetch(REDIS_LOCATIONS_ENDPOINT);
+        if (res.ok) {
+          const snapshot = await res.json();
+          handleLocationBatch(snapshot);
+        } else {
+          console.warn('Redis location snapshot endpoint unavailable, status:', res.status);
+        }
+      } catch (e) {
+        console.warn('Failed to fetch Redis-backed unit locations; relying on WebSocket batches', e);
+      }
+    })();
 
     // Use the enriched monitor endpoint initially so incidents show assignment/count/status metadata
     fetch(`${API_BASE}/api/monitor/incidents`).then(r => r.json()).then(incidents => {
@@ -322,16 +396,17 @@ export default function SimulationMap() {
     });
 
     return () => {
-      websocketService.off('unitsList', handleUnitsListWithActivity);
-      websocketService.off('unitUpdate');
+      websocketService.off('unitsList', handleUnitsList);
+      websocketService.off('unitUpdate', handleUnitUpdateWithActivity);
       websocketService.off('unitLocation');
       websocketService.off('unitRoute');
-      websocketService.off('incidentAdded');
+      websocketService.off('incidentAdded', handleIncidentAdded);
       websocketService.off('incidentsList', handleIncidentsList);
-      websocketService.off('incidentsMonitorList');
+      websocketService.off('incidentsMonitorList', handleIncidentsMonitorList);
       websocketService.off('incidentUpdate');
       websocketService.off('assignmentUpdate', handleAssignmentUpdateWithActivity);
       websocketService.off('assignmentsList', handleAssignmentsListWithActivity);
+      websocketService.off('locationBatch', handleLocationBatchWithActivity);
       websocketService.off('connected', handleConnect);
       websocketService.off('disconnected', handleDisconnect);
       if (simActivityTimerRef.current) { clearInterval(simActivityTimerRef.current); simActivityTimerRef.current = null; }
@@ -365,6 +440,16 @@ export default function SimulationMap() {
     return () => { if (simActivityTimerRef.current) { clearInterval(simActivityTimerRef.current); simActivityTimerRef.current = null; } };
   }, []);
 
+  function updateUnitMeta(unit) {
+    if (!unit || unit.unitID == null) return null;
+    const existingMeta = unitMetaRef.current.get(unit.unitID) || {};
+    const resolvedType = unit.type ?? existingMeta.type ?? 'UNKNOWN';
+    const resolvedStatus = (typeof unit.status === 'boolean') ? unit.status : (typeof existingMeta.status === 'boolean' ? existingMeta.status : true);
+    const meta = { type: resolvedType, status: resolvedStatus };
+    unitMetaRef.current.set(unit.unitID, meta);
+    return { resolvedType, resolvedStatus };
+  }
+
   function addOrUpdateUnit(unit) {
     if (!unit || unit.unitID == null) return;
     const id = unit.unitID;
@@ -372,7 +457,11 @@ export default function SimulationMap() {
     const lon = parseFloat(unit.longtitude || unit.longitude || 0);
     if (!isFinite(lat) || !isFinite(lon)) return;
 
-    const popup = `<strong>Unit #${id}</strong><br/>Type: ${unit.type}<br/>Status: ${unit.status ? 'Available' : 'Busy'}`;
+    const meta = updateUnitMeta(unit);
+    const resolvedType = meta?.resolvedType ?? 'UNKNOWN';
+    const resolvedStatus = (typeof meta?.resolvedStatus === 'boolean') ? meta.resolvedStatus : true;
+
+    const popup = `<strong>Unit #${id}</strong><br/>Type: ${resolvedType}<br/>Status: ${resolvedStatus ? 'Available' : 'Busy'}`;
 
     // If this unit was recently generated and we stored a chosen target, avoid animating when the server confirms the same coords
     let skipAnimate = false;
@@ -396,9 +485,11 @@ export default function SimulationMap() {
         const latDiff = Math.abs(curLat - lat);
         const lonDiff = Math.abs(curLng - lon);
         // Only animate if movement is meaningful to avoid unnecessary work
-        if ((latDiff > 0.00001 || lonDiff > 0.00001) && marker.setLatLng) {
-          if (skipAnimate) {
-            // Server confirmed our chosen target — set directly to avoid a visual jump
+        const meaningfulMove = (latDiff > 0.00001 || lonDiff > 0.00001);
+        const allowSmooth = !disableSmoothMovementRef.current && !skipAnimate;
+        if (meaningfulMove && marker.setLatLng) {
+          if (!allowSmooth) {
+            // Too many units at once — apply immediate move to avoid CPU spike
             marker.setLatLng([lat, lon]);
           } else {
             animateMarkerTo(marker, lat, lon, 800);
@@ -412,23 +503,23 @@ export default function SimulationMap() {
       }
 
       if (marker.setIcon) {
-        marker.setIcon(createCarIcon(unit.type));
+        marker.setIcon(createCarIcon(resolvedType));
       } else {
         // fallback: remove and recreate marker
         try { if (marker && marker._moveAnimation) { marker._moveAnimation.cancelled = true; marker._moveAnimation = null; } } catch(e) {}
         mapRef.current.removeLayer(marker);
-        const newMarker = L.marker([lat, lon], { icon: createCarIcon(unit.type) }).addTo(mapRef.current);
+        const newMarker = L.marker([lat, lon], { icon: createCarIcon(resolvedType) }).addTo(mapRef.current);
         newMarker.bindPopup(popup);
         markersRef.current.units.set(id, newMarker);
       }
       // Dim or highlight marker based on status (busy vs available)
-      if (typeof marker.setOpacity === 'function') marker.setOpacity(unit.status ? 1.0 : 0.5);
+      if (typeof marker.setOpacity === 'function') marker.setOpacity(resolvedStatus ? 1.0 : 0.5);
       marker.bindPopup(popup);
     } else {
       // Create a marker with a car icon instead of a circle
-      const marker = L.marker([lat, lon], { icon: createCarIcon(unit.type) }).addTo(mapRef.current);
+      const marker = L.marker([lat, lon], { icon: createCarIcon(resolvedType) }).addTo(mapRef.current);
       marker.bindPopup(popup);
-      if (typeof marker.setOpacity === 'function') marker.setOpacity(unit.status ? 1.0 : 0.5);
+      if (typeof marker.setOpacity === 'function') marker.setOpacity(resolvedStatus ? 1.0 : 0.5);
       markersRef.current.units.set(id, marker);
     }
   }
@@ -444,12 +535,11 @@ export default function SimulationMap() {
     const strokeStyle = (statusStr === 'DISPATCH') ? 'stroke:#ff8c00;stroke-width:1.3' : 'stroke:#222;stroke-width:0.5';
     const showCheck = (statusStr === 'COMPLETED');
     const dispatchRing = (statusStr === 'DISPATCH') ? `<circle cx="12" cy="9.5" r="6.8" fill="none" stroke="#ff8c00" stroke-width="1" opacity="0.95" />` : '';
-    const pulseClass = (statusStr === 'COMPLETED') ? '' : 'pulse';
     const checkSvg = showCheck ? '<path d="M9 11l2 2 4-4" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>' : '';
     const svg = `
       <svg width="${size}" height="${size}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <g class="pin-shadow">
-          <path class="${pulseClass}" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 11 7 11s7-5.75 7-11c0-3.87-3.13-7-7-7z" fill="${color}" fill-opacity="${opacity}" />
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 11 7 11s7-5.75 7-11c0-3.87-3.13-7-7-7z" fill="${color}" fill-opacity="${opacity}" />
         </g>
         <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 11 7 11s7-5.75 7-11c0-3.87-3.13-7-7-7z" fill="${color}" style="${strokeStyle}" />
         ${dispatchRing}
@@ -504,23 +594,55 @@ export default function SimulationMap() {
     const assignmentText = hasActive ? `<br/><em>Assigned: ${inc.assignedUnitsCount ?? (inc.totalAssignmentsCount ?? 1)}</em>` : '';
     const popup = `<strong>Incident #${id}</strong><br/>Type: ${inc.type}<br/>Severity: ${inc.severityLevel || ''}${assignmentText}<br/>Status: ${status}`;
 
+    // Build the desired icon once
+    const desiredIcon = createIncidentIcon(inc.type, severity, hasActive, status);
+
     if (markersRef.current.incidents.has(id)) {
       const marker = markersRef.current.incidents.get(id);
+
+      // Update position immediately
       if (marker.setLatLng) marker.setLatLng([lat, lon]);
-      if (marker.setIcon) marker.setIcon(createIncidentIcon(inc.type, severity, hasActive, status));
-      else {
-        // fallback for older circle markers: remove and recreate as marker
-        mapRef.current.removeLayer(marker);
-        const newMarker = L.marker([lat, lon], { icon: createIncidentIcon(inc.type, severity, hasActive, status) }).addTo(mapRef.current);
-        newMarker.bindPopup(popup);
-        markersRef.current.incidents.set(id, newMarker);
+
+      // Compare metadata to avoid unnecessary icon swaps that cause visual flashes
+      const prevMeta = marker._incidentMeta || {};
+      const metaChanged = prevMeta.status !== status || prevMeta.type !== (inc.type || '') || prevMeta.hasActive !== hasActive || prevMeta.severity !== severity;
+
+      if (metaChanged) {
+        try {
+          if (marker.setIcon) {
+            // Apply icon only if it meaningfully changed
+            marker.setIcon(desiredIcon);
+          } else {
+            // fallback for older circle markers: remove and recreate as marker
+            mapRef.current.removeLayer(marker);
+            const newMarker = L.marker([lat, lon], { icon: desiredIcon }).addTo(mapRef.current);
+            newMarker.bindPopup(popup);
+            markersRef.current.incidents.set(id, newMarker);
+          }
+          // Store current meta for future diffs
+          const currentMarker = markersRef.current.incidents.get(id);
+          if (currentMarker) currentMarker._incidentMeta = { status, type: inc.type || '', hasActive, severity };
+
+          // If completed, ensure dimming is immediately applied (redundant with CSS class but makes it explicit)
+          if (status === 'COMPLETED') {
+            const m = markersRef.current.incidents.get(id);
+            if (m && typeof m.setOpacity === 'function') m.setOpacity(0.72);
+          }
+        } catch (e) {
+          // if anything goes wrong fallback to direct set
+          try { if (marker.setLatLng) marker.setLatLng([lat, lon]); } catch (e2) {}
+        }
       }
+
       // re-bind popup to whichever marker is current
       const currentMarker = markersRef.current.incidents.get(id);
       if (currentMarker && currentMarker.bindPopup) currentMarker.bindPopup(popup);
     } else {
-      const marker = L.marker([lat, lon], { icon: createIncidentIcon(inc.type, severity, hasActive, status) }).addTo(mapRef.current);
+      // Create marker with the desired icon already set (avoid intermediate states)
+      const marker = L.marker([lat, lon], { icon: desiredIcon }).addTo(mapRef.current);
       marker.bindPopup(popup);
+      marker._incidentMeta = { status, type: inc.type || '', hasActive, severity };
+      if (status === 'COMPLETED' && typeof marker.setOpacity === 'function') marker.setOpacity(0.72);
       markersRef.current.incidents.set(id, marker);
     }
   }
