@@ -19,6 +19,7 @@ import com.emergency.dispatch.repository.AssignmentRepository;
 import com.emergency.dispatch.repository.IncidentRepository;
 import com.emergency.dispatch.repository.NotificationRepository;
 import com.emergency.dispatch.repository.UserRepository;
+import com.emergency.dispatch.service.IncidentMonitorService;
 
 @Service
 public class IncidentService {
@@ -27,7 +28,7 @@ public class IncidentService {
     private IncidentRepository incidentRepository;
 
     @Autowired
-    private com.emergency.dispatch.service.IOservice.IncidentMonService monitorService;
+    private IncidentMonitorService monitorService;
 
     @Autowired
     private UserRepository userRepository;

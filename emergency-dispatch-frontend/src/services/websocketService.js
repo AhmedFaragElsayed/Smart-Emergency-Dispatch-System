@@ -95,6 +95,15 @@ class WebSocketService {
       }
     });
 
+    // Subscribe to batched location updates (High Performance)
+    this.subscribe('/topic/unit-location-batch', (message) => {
+      if (message.body) {
+        const batchData = JSON.parse(message.body);
+        // Emit 'locationBatch' event that SimulationMap.jsx is listening for
+        this.notifyListeners('locationBatch', batchData);
+      }
+    });
+
     // Also subscribe to new incident publishes (some controllers use /topic/incidents)
     this.subscribe('/topic/incidents', (message) => {
       const body = JSON.parse(message.body);

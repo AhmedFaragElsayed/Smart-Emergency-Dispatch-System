@@ -12,4 +12,6 @@ import java.util.List;
 public interface IncidentRepository extends JpaRepository<Incident, Long> {
     // Find all incidents that are not completed
     List<Incident> findByStatusIn(List<IncidentStatus> statuses);
+
+    List<Incident> findByStatus(IncidentStatus status);
 }

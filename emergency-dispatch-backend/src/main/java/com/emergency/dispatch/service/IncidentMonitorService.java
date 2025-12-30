@@ -4,17 +4,17 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional; // 1. IMPORT THIS
 
 import com.emergency.dispatch.model.Assignment;
 import com.emergency.dispatch.model.Incident;
 import com.emergency.dispatch.repository.AssignmentRepository;
 import com.emergency.dispatch.repository.IncidentRepository;
-
-
 
 @Service
 public class IncidentMonitorService {
@@ -28,6 +28,8 @@ public class IncidentMonitorService {
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
+    // 2. ADD @Transactional to prevent lazy loading errors
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getAllIncidentsWithStatus() {
         List<Incident> incidents = incidentRepository.findAll();
         List<Map<String, Object>> incidentsData = new ArrayList<>();
@@ -51,15 +53,19 @@ public class IncidentMonitorService {
         incidentData.put("reportedTime", incident.getReportedTime());
         incidentData.put("status", incident.getStatus());
 
-        // Get ALL assignments for this incident first
+        // Get ALL assignments for this incident
         List<Assignment> allAssignments = assignmentRepository.findByIncident_IncidentId(incident.getIncidentId());
         
+        // Safety check if list is null
+        if (allAssignments == null) {
+            allAssignments = new ArrayList<>();
+        }
+
         // Filter to get only active assignments
         List<Assignment> activeAssignments = allAssignments.stream()
                 .filter(assignment -> assignment.getIsActive() != null && assignment.getIsActive())
-                .toList();
+                .collect(Collectors.toList());
 
-        // Check if incident has any assignments (regardless of active status) to mark as "assigned"
         boolean hasAnyAssignments = !allAssignments.isEmpty();
         boolean hasActiveAssignments = !activeAssignments.isEmpty();
 
@@ -70,8 +76,16 @@ public class IncidentMonitorService {
                 assignmentInfo.put("assignmentId", assignment.getAssignmentId());
                 assignmentInfo.put("assignmentTime", assignment.getAssignmentTime());
                 assignmentInfo.put("isActive", assignment.getIsActive());
-                assignmentInfo.put("unitId", assignment.getEmergencyUnit().getUnitID());
-                assignmentInfo.put("unitType", assignment.getEmergencyUnit().getType());
+                
+                // 3. CRITICAL FIX: Check if EmergencyUnit is null before accessing ID
+                if (assignment.getEmergencyUnit() != null) {
+                    assignmentInfo.put("unitId", assignment.getEmergencyUnit().getUnitID());
+                    assignmentInfo.put("unitType", assignment.getEmergencyUnit().getType());
+                } else {
+                    assignmentInfo.put("unitId", null);
+                    assignmentInfo.put("unitType", "UNKNOWN");
+                }
+
                 if (assignment.getUser() != null) {
                     assignmentInfo.put("userId", assignment.getUser().getUserID());
                     assignmentInfo.put("userName", assignment.getUser().getUserName());
@@ -90,18 +104,19 @@ public class IncidentMonitorService {
             incidentData.put("assignedUnitsCount", 0);
         }
         
-        // Mark incident as "assigned" if it has ANY assignment (active or not)
         incidentData.put("hasAssignments", hasAnyAssignments);
         incidentData.put("totalAssignmentsCount", allAssignments.size());
 
         return incidentData;
     }
 
+    @Transactional(readOnly = true)
     public void broadcastAllIncidents() {
         List<Map<String, Object>> incidentsData = getAllIncidentsWithStatus();
         messagingTemplate.convertAndSend("/topic/incidents-monitor", (Object) incidentsData);
     }
 
+    @Transactional(readOnly = true)
     public void broadcastIncidentUpdate(Long incidentId) {
         Incident incident = incidentRepository.findById(incidentId).orElse(null);
         if (incident != null) {
