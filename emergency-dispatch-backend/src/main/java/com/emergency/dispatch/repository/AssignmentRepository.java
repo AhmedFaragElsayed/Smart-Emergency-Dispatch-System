@@ -2,7 +2,7 @@ package com.emergency.dispatch.repository;
 
 import java.util.List;
 
-
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -42,4 +42,8 @@ public interface AssignmentRepository extends JpaRepository<Assignment, Long> {
     
     // Find all assignments by emergency unit ID
     List<Assignment> findByEmergencyUnit_UnitID(Long unitId);
+
+    @EntityGraph(attributePaths = {"incident", "emergencyUnit"})
+    List<Assignment> findAll();
+
 }

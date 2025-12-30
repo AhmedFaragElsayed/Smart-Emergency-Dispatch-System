@@ -3,6 +3,7 @@ package com.emergency.dispatch.service.IOservice;
 import com.emergency.dispatch.model.EmergencyUnit;
 import com.emergency.dispatch.model.Incident;
 import com.emergency.dispatch.model.Assignment;
+import com.emergency.dispatch.enums.EmergencyUnitType;
 import com.emergency.dispatch.enums.IncidentStatus;
 import com.emergency.dispatch.enums.SeverityLevel;
 import com.emergency.dispatch.repository.EmergencyUnitRepository;
@@ -22,6 +23,8 @@ import org.springframework.web.client.RestTemplate;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.CompletableFuture;
 import java.util.HashMap;
 import java.util.Locale;
@@ -31,6 +34,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import java.time.Duration;
 import java.time.LocalDateTime;
 
@@ -51,6 +55,9 @@ public class SimulationService {
     // Inject Redis Template for fast location updates
     @Autowired
     private StringRedisTemplate redisTemplate;
+
+    @Autowired
+    private RedisLocationService redisLocationService;
     
     // Redis Keys
     private static final String KEY_PREFIX = "unit_loc:";
@@ -64,6 +71,8 @@ public class SimulationService {
     
     private Thread simulationThread;
     private final AtomicBoolean running = new AtomicBoolean(false);
+
+    private final ExecutorService dispatchExecutor = Executors.newFixedThreadPool(3);
 
     public void startSimulation() {
         System.out.println("[SimulationService] startSimulation called");
@@ -81,7 +90,7 @@ public class SimulationService {
                     processUnitMovements(); 
                     
                     // 2. Optimized Dispatching
-                    performSmartDispatching();
+                    performParallelDispatching();
 
                     // Sleep 1 second (Tick)
                     Thread.sleep(1000); 
@@ -100,99 +109,106 @@ public class SimulationService {
      * 3. Sorts Incidents by Severity (Critical first) -> Waiting Time (Oldest first).
      * 4. Matches nearest appropriate unit.
      */
-    private void performSmartDispatching() {
-        // Fetch only relevant data
-        List<Incident> pendingIncidents = incidentRepository.findByStatus(IncidentStatus.PENDING);
-        if (pendingIncidents.isEmpty()) return;
+    private void performParallelDispatching() {
+        // 1. Fetch ALL data first (Main Thread)
+        List<Incident> allIncidents = incidentRepository.findByStatus(IncidentStatus.PENDING);
+        List<EmergencyUnit> allUnits = emergencyUnitRepository.findByStatus(true);
+        if (allIncidents.isEmpty() || allUnits.isEmpty()) return;
 
-        List<EmergencyUnit> availableUnits = emergencyUnitRepository.findByStatus(true); // true = Available
-        if (availableUnits.isEmpty()) return;
+        // 2. Sync ALL locations from Redis in ONE batch (Optimized Pipeline)
+        Map<String, Map<Object, Object>> locationCache = redisLocationService.getAllLocations();
+        syncUnitsWithCache(allUnits, locationCache);
 
-        // Sync local unit objects with their latest location from Redis
-        // This ensures our distance calculation uses the real-time location
-        syncUnitLocationsFromRedis(availableUnits);
+        // 3. Submit Parallel Tasks
+        CompletableFuture<Void> fireTask = CompletableFuture.runAsync(() -> 
+            dispatchByType(allIncidents, allUnits, EmergencyUnitType.FIRE), dispatchExecutor);
+        
+        CompletableFuture<Void> policeTask = CompletableFuture.runAsync(() -> 
+            dispatchByType(allIncidents, allUnits, EmergencyUnitType.POLICE), dispatchExecutor);
+            
+        CompletableFuture<Void> medicalTask = CompletableFuture.runAsync(() -> 
+            dispatchByType(allIncidents, allUnits, EmergencyUnitType.AMBULANCE), dispatchExecutor);
 
-        // Sort Incidents: Critical > High > Medium > Low. Tie-breaker: Oldest first.
-        pendingIncidents.sort((i1, i2) -> {
-            int severityCompare = Integer.compare(getSeverityWeight(i2.getSeverityLevel()), getSeverityWeight(i1.getSeverityLevel()));
-            if (severityCompare != 0) return severityCompare;
-            return i1.getReportedTime().compareTo(i2.getReportedTime()); // Oldest time first
-        });
+        // 4. Wait for all to finish
+        CompletableFuture.allOf(fireTask, policeTask, medicalTask).join();
+    }
 
-        List<EmergencyUnit> assignedUnits = new ArrayList<>();
-        List<Incident> assignedIncidents = new ArrayList<>();
+    private void dispatchByType(List<Incident> allIncidents, List<EmergencyUnit> allUnits, EmergencyUnitType type) {
+        // Filter lists for this thread
+        List<Incident> typeIncidents = allIncidents.stream()
+            .filter(i -> i.getType().toString().equalsIgnoreCase(type.toString()))
+            .sorted((i1, i2) -> {
+                int sev = Integer.compare(getSeverityWeight(i2.getSeverityLevel()), getSeverityWeight(i1.getSeverityLevel()));
+                return (sev != 0) ? sev : i1.getReportedTime().compareTo(i2.getReportedTime());
+            })
+            .collect(Collectors.toList());
 
-        for (Incident incident : pendingIncidents) {
-            // Filter units by matching type
-            List<EmergencyUnit> candidateUnits = availableUnits.stream()
-                .filter(u -> u.getType().toString().equalsIgnoreCase(incident.getType().toString()))
-                .toList();
+        List<EmergencyUnit> typeUnits = allUnits.stream()
+            .filter(u -> u.getType().toString().equalsIgnoreCase(type.toString()))
+            .collect(Collectors.toList()); 
 
-            if (candidateUnits.isEmpty()) continue;
+        for (Incident incident : typeIncidents) {
+            if (typeUnits.isEmpty()) break;
 
-            // Find nearest unit
-            EmergencyUnit nearestUnit = null;
-            double minDistance = Double.MAX_VALUE;
-            double MAX_DISPATCH_RADIUS_KM = 50.0;
+            EmergencyUnit nearest = null;
+            double minDist = 50.0; 
 
-            for (EmergencyUnit unit : candidateUnits) {
+            for (EmergencyUnit unit : typeUnits) {
                 double dist = calculateDistance(incident.getLatitude(), incident.getLongtitude(),
                                               unit.getLatitude(), unit.getLongtitude());
-                if (dist < minDistance && dist <= MAX_DISPATCH_RADIUS_KM) {
-                    minDistance = dist;
-                    nearestUnit = unit;
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = unit;
                 }
             }
 
-            if (nearestUnit != null) {
-                assignUnit(nearestUnit, incident);
-                
-                // Remove from available pool for this tick so it's not double-assigned
-                availableUnits.remove(nearestUnit);
-                assignedUnits.add(nearestUnit);
-                assignedIncidents.add(incident);
+            if (nearest != null) {
+                assignUnit(nearest, incident);
+                typeUnits.remove(nearest); 
             }
         }
     }
 
     private void assignUnit(EmergencyUnit unit, Incident incident) {
-        System.out.println("[SmartDispatch] Assigning Unit " + unit.getUnitID() + " to " + incident.getSeverityLevel() + " Incident " + incident.getIncidentId());
+        synchronized(this) {
+            System.out.println("[SmartDispatch] Assigning Unit " + unit.getUnitID() + " to " + incident.getSeverityLevel() + " Incident " + incident.getIncidentId());
 
-        // Update DB State for assignment
-        unit.setStatus(false); // Busy
-        emergencyUnitRepository.save(unit);
+            // Update DB State for assignment
+            unit.setStatus(false); // Busy
+            emergencyUnitRepository.save(unit);
 
-        incident.setStatus(IncidentStatus.DISPATCH);
-        incidentRepository.save(incident);
-
+            incident.setStatus(IncidentStatus.DISPATCH);
+            incidentRepository.save(incident);
+        }
         // Create Assignment Record
         Assignment assignment = new Assignment();
         assignment.setAssignmentTime(System.currentTimeMillis());
         assignment.setIncident(incident);
         assignment.setEmergencyUnit(unit);
         assignment.setIsActive(true);
-        assignmentRepository.save(assignment);
+        Assignment savedAssignment = assignmentRepository.save(assignment);
 
         // Calculate Route
         CompletableFuture.runAsync(() -> fetchAndStoreRoute(unit, incident));
 
         // Broadcast Updates
-        messagingTemplate.convertAndSend("/topic/assignments/all", assignmentRepository.findAll());
-        messagingTemplate.convertAndSend("/topic/incidents", incidentRepository.findAll());
-        // Note: Unit status update will be picked up by the Redis Scheduler automatically
+        // 1. Broadcast ONLY the single assignment (Lightweight)
+             messagingTemplate.convertAndSend("/topic/assignments", savedAssignment);
+             
+             // 2. Broadcast ONLY the single incident update
+             messagingTemplate.convertAndSend("/topic/incidents-monitor/update", incident);
     }
 
-    private void syncUnitLocationsFromRedis(List<EmergencyUnit> units) {
+    private void syncUnitsWithCache(List<EmergencyUnit> units, Map<String, Map<Object, Object>> cache) {
         for (EmergencyUnit unit : units) {
-            String key = KEY_PREFIX + unit.getUnitID();
-            Object latStr = redisTemplate.opsForHash().get(key, "lat");
-            Object lonStr = redisTemplate.opsForHash().get(key, "lon");
-
-            if (latStr != null && lonStr != null) {
+            Map<Object, Object> data = cache.get(String.valueOf(unit.getUnitID()));
+            if (data != null) {
                 try {
-                    unit.setLatitude(Double.valueOf(latStr.toString()));
-                    unit.setLongtitude(Double.valueOf(lonStr.toString()));
-                } catch (NumberFormatException e) {
+                    Object lat = data.get("lat");
+                    Object lon = data.get("lon");
+                    if (lat != null) unit.setLatitude(Double.valueOf(lat.toString()));
+                    if (lon != null) unit.setLongtitude(Double.valueOf(lon.toString()));
+                } catch (Exception e) {
                     // Ignore, keep DB value
                 }
             }
@@ -267,9 +283,9 @@ public class SimulationService {
                         
                         doneAssignmentService.completeAssignmentByIncidentId(incidentId);
                         
-                        // Broadcast completion
-                        messagingTemplate.convertAndSend("/topic/assignments/all", assignmentRepository.findAll());
-                        messagingTemplate.convertAndSend("/topic/incidents", incidentRepository.findAll());
+                        incidentRepository.findById(incidentId).ifPresent(updatedIncident -> {
+                            messagingTemplate.convertAndSend("/topic/incidents-monitor/update", updatedIncident);
+                       });
                     } catch (Exception e) {
                         e.printStackTrace();
                     }

@@ -5,7 +5,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
+
 import com.emergency.dispatch.service.RedisLocationService;
+
 
 @Controller
 public class LocationUpdateController {
@@ -26,5 +30,11 @@ public class LocationUpdateController {
         } catch (Exception e) {
             System.err.println("Error processing location update: " + e.getMessage());
         }
+    }
+
+    @GetMapping("/api/monitor/unit-locations/poll")
+    @ResponseBody
+    public Map<String, Map<Object, Object>> getLocationsPoll() {
+        return redisLocationService.getAllLocations();
     }
 }
