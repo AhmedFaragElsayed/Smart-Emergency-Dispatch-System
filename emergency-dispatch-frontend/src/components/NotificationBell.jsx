@@ -20,8 +20,14 @@ const NotificationBell = () => {
     // Load existing notifications from the service
     const existingNotifications = websocketService.getNotifications()
       .filter(n => n.user && (n.user.userID === user.id || n.user.userID === parseInt(user.id)));
-    
-    setNotifications(existingNotifications);
+    // dedupe by incidentId or notificationId
+    const seen = new Map();
+    const unique = [];
+    existingNotifications.forEach(n => {
+      const key = (n.notificationId ? `nid:${n.notificationId}` : '') || (n.incident && n.incident.incidentId ? `inc:${n.incident.incidentId}` : n.message);
+      if (!seen.has(key)) { seen.set(key, true); unique.push(n); }
+    });
+    setNotifications(unique);
     
     // Get unread count from service (persistent across page changes)
     setUnreadCount(websocketService.getUnreadCount(user.id));
@@ -44,10 +50,30 @@ const NotificationBell = () => {
       }
     };
 
+    const handleNotificationUpdated = (updated) => {
+      // Replace existing notification in list if present
+      setNotifications((prev) => {
+        const idx = prev.findIndex(n => (n.notificationId && updated.notificationId && n.notificationId === updated.notificationId) || (n.incident && updated.incident && (n.incident.incidentId === updated.incident.incidentId)));
+        if (idx !== -1) {
+          const next = [...prev];
+          next[idx] = updated;
+          return next;
+        }
+        // if not found but matches current user, add
+        if (updated.user && (updated.user.userID === user.id || updated.user.userID == user.id)) {
+          return [updated, ...prev];
+        }
+        return prev;
+      });
+      setUnreadCount(websocketService.getUnreadCount(user.id));
+    };
+
     websocketService.on('notification', handleNotification);
+    websocketService.on('notificationUpdated', handleNotificationUpdated);
 
     return () => {
       websocketService.off('notification', handleNotification);
+      websocketService.off('notificationUpdated', handleNotificationUpdated);
     };
   }, [user]);
 
@@ -67,23 +93,22 @@ const NotificationBell = () => {
   };
 
   const clearNotifications = () => {
-    // Clear notifications from service (for all users)
+    // Clear notifications from service for this user
     const userNotifications = websocketService.getNotifications()
       .filter(n => n.user && (n.user.userID === user.id || n.user.userID === parseInt(user.id)));
-    
-    // Remove user's notifications from the service
-    userNotifications.forEach(() => {
-      const allNotifications = websocketService.getNotifications();
-      const index = allNotifications.findIndex(n => 
-        n.user && (n.user.userID === user.id || n.user.userID === parseInt(user.id))
-      );
-      if (index !== -1) {
-        websocketService.removeNotification(index);
-      }
+
+    userNotifications.forEach(n => {
+      if (n.notificationId) websocketService.removeNotificationById(n.notificationId);
     });
-    
+
     setNotifications([]);
     setUnreadCount(0);
+  };
+
+  const handleDeleteNotification = (notificationId) => {
+    websocketService.removeNotificationById(notificationId);
+    setNotifications((prev) => prev.filter(n => n.notificationId !== notificationId));
+    setUnreadCount(websocketService.getUnreadCount(user.id));
   };
 
   return (
@@ -119,9 +144,10 @@ const NotificationBell = () => {
               </div>
             ) : (
               notifications.map((notification, index) => (
-                <div key={index} className="notification-item">
-                  <div className="notification-message">
-                    {notification.message}
+                <div key={notification.notificationId || index} className="notification-item">
+                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                    <div className="notification-message">{notification.message}</div>
+                    <button className="clear-btn" style={{marginLeft:'8px'}} onClick={() => handleDeleteNotification(notification.notificationId)}>Delete</button>
                   </div>
                   {notification.notificationTime && (
                     <div className="notification-time">

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import IncidentCard from '../components/IncidentCard';
 import EmergencyUnitCard from '../components/EmergencyUnitCard';
 import NotificationBell from '../components/NotificationBell';
+import OverdueAlert from '../components/OverdueAlert';
 import { useAuth } from '../context/AuthContext';
 import websocketService from '../services/websocketService';
 import apiService from '../services/apiService';
@@ -240,6 +241,7 @@ const AdminPortal = () => {
         <h1>🚨 Emergency Dispatch Admin Portal</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <NotificationBell />
+          <OverdueAlert />
           <div className="connection-status">
             <span className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}></span>
             <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
