@@ -5,7 +5,10 @@ import org.springframework.stereotype.Repository;
 
 import com.emergency.dispatch.model.EmergencyUnit;
 
+import java.util.List;
+
 @Repository
 public interface EmergencyUnitRepository extends JpaRepository<EmergencyUnit, Long> {
 
+    List<EmergencyUnit> findByStatus(Boolean status);
 }
