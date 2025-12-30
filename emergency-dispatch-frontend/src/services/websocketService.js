@@ -38,8 +38,9 @@ class WebSocketService {
             console.log('STOMP Debug:', str);
           },
           reconnectDelay: 5000,
-          heartbeatIncoming: 4000,
-          heartbeatOutgoing: 4000,
+          // Increase heartbeats to tolerate occasional main-thread stalls when processing large batches
+          heartbeatIncoming: 10000,
+          heartbeatOutgoing: 10000,
         });
 
         this.stompClient.onConnect = () => {

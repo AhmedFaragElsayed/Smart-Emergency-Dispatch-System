@@ -196,6 +196,28 @@
                 units = JSON.parse(message.body);
                 renderUnits();
             });
+            // Redis-backed high-frequency location stream
+            stompUnitsClient.subscribe('/topic/unit-location-batch', function(message) {
+                try {
+                    const batch = JSON.parse(message.body);
+                    let changed = false;
+                    units = units.map(u => {
+                        const loc = batch[u.unitID] || batch[String(u.unitID)];
+                        if (loc && typeof loc.lat !== 'undefined' && typeof loc.lon !== 'undefined') {
+                            const nextLat = parseFloat(loc.lat);
+                            const nextLon = parseFloat(loc.lon);
+                            if (isFinite(nextLat) && isFinite(nextLon) && (u.latitude !== nextLat || u.longtitude !== nextLon)) {
+                                changed = true;
+                                return { ...u, latitude: nextLat, longtitude: nextLon };
+                            }
+                        }
+                        return u;
+                    });
+                    if (changed) renderUnits();
+                } catch (e) {
+                    console.warn('Failed to apply Redis location batch', e);
+                }
+            });
             // Request all units on connect
             stompUnitsClient.publish({destination: '/app/units/subscribe', body: ''});
         };

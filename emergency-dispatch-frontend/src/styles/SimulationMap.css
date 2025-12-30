@@ -6,16 +6,9 @@
 .incident-pin-icon svg{display:block;}
 .incident-pin-icon{transform:translateY(-6px);} 
 .incident-pin-icon .pin-shadow{filter:drop-shadow(0 3px 6px rgba(0,0,0,0.5));}
-.incident-pin-icon .pulse{fill-opacity:0.12;animation:pinPulse 1.8s infinite ease-out;}
-@keyframes pinPulse{0%{transform:scale(1);opacity:1}70%{transform:scale(1.8);opacity:0}100%{transform:scale(2);opacity:0}}
 
-/* Dispatched incidents get a warmer pulse + accent ring */
-.incident-status-dispatch .pin-shadow .pulse{fill-opacity:0.22;animation:dispatchPulse 1.1s infinite ease-out;}
-@keyframes dispatchPulse{0%{transform:scale(1);opacity:1}60%{transform:scale(1.9);opacity:0}100%{transform:scale(2);opacity:0}}
-
-/* Completed incidents are dimmed and show a check; remove pulse */
-.incident-status-completed svg .pulse{display:none}
-.incident-status-completed{filter:grayscale(1) opacity(0.72)}
+/* Completed incidents are dimmed and show a check */
+.incident-status-completed{filter:grayscale(1); opacity:0.72}
 
 /* Simulation state badge */
 .sim-badge{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;font-weight:600;font-size:12px;color:#fff}
